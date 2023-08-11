@@ -2,16 +2,16 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
-#include <stdexcept>
-#include <cstdlib>
 #include <vector>
+#include <algorithm>
 
 #define __FILE_LINE__ __FILE__ << ":" << __LINE__ << ":"
 
 #define LOG(x) std::cout << __FILE_LINE__ << x << std::endl
 #define LOGE(x) std::cerr << __FILE_LINE__ << x << std::endl
-
 #define ERROR(x) throw std::runtime_error(x)
+
+#define list(x) std::vector<x>
 
 class HelloTriangleApplication
 {
@@ -58,19 +58,19 @@ private:
         glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
             if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
-            });
+        });
 
         while (!glfwWindowShouldClose(window))
             glfwPollEvents();
     }
 
     // Remember to free memory, LMAO
-    std::vector<VkExtensionProperties>* getAvailableExtensions()
+    list(VkExtensionProperties)* getAvailableExtensions()
     {
         uint32_t extensionCount = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
 
-        std::vector<VkExtensionProperties>* extensions = new std::vector<VkExtensionProperties>(extensionCount);
+        auto* extensions = new std::vector<VkExtensionProperties>(extensionCount);
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions->data());
 
         return extensions;
@@ -96,25 +96,32 @@ private:
 
         LOG("Info created");
 
-        uint32_t glfwExtensionCount = 0;
-        const char** glfwExtensions;
+        uint32_t extensionCount = 0;
+        const char** requiredExtensions = glfwGetRequiredInstanceExtensions(&extensionCount);
 
-        glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-        LOG("Required extensions:");
-        for (uint32_t i = 0; i < glfwExtensionCount; i++)
-            LOG('\t' << glfwExtensions[i]);
-
-        createInfo.enabledExtensionCount = glfwExtensionCount;
-        createInfo.ppEnabledExtensionNames = glfwExtensions;
+        createInfo.enabledExtensionCount = extensionCount;
+        createInfo.ppEnabledExtensionNames = requiredExtensions;
         createInfo.enabledLayerCount = 0;
 
-        LOG("Extensions enabled");
+        list(VkExtensionProperties)* availableExtensions = getAvailableExtensions();
 
-        auto extensions = getAvailableExtensions();
+        LOG("Checking for extensions");
+        bool extensionsAvailable = true;
+        for (int i = 0; i < extensionCount && extensionsAvailable; ++i)
+        {
+            const char* extension = requiredExtensions[i];
 
-        for (const auto& extension : *extensions)
-            LOG("Available extension: " << extension.extensionName);
+            const auto compareExtensions = [extension](VkExtensionProperties& props) {
+                return std::string(props.extensionName) == std::string(extension);
+            };
+
+            if (!std::any_of(availableExtensions->begin(), availableExtensions->end(), compareExtensions)) {
+
+                LOGE("Extension " << extension << " is not available");
+                extensionsAvailable = false;
+            }
+        }
+
 
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
             ERROR("Failed to create instance!");

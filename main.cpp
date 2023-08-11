@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 
 #define __FILE_LINE__ __FILE__ << ":" << __LINE__ << ":"
 
@@ -27,6 +28,14 @@ public:
 private:
     const uint32_t WIDTH = 800;
     const uint32_t HEIGHT = 600;
+
+    const list(const char*) validationLayers = { "VK_LAYER_KHRONOS_validation" };
+
+#ifdef NDEBUG
+    const bool enableValidationLayers = false;
+#else
+    const bool enableValidationLayers = true;
+#endif
 
     GLFWwindow* window;
     VkInstance instance;
@@ -76,6 +85,24 @@ private:
         return extensions;
     }
 
+    bool checkValidationLayerSupport() {
+        uint32_t layerCount = 0;
+        vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+        std::vector<VkLayerProperties> availableLayers(layerCount);
+        vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+        for (const char* layerName : validationLayers) {
+            const auto layerFound = [layerName](VkLayerProperties& props) {
+                return strcmp(props.layerName, layerName) == 0;
+            };
+            if (!std::any_of(availableLayers.begin(), availableLayers.end(), layerFound))
+                return false;
+        }
+
+        return true;
+    }
+
     // This is optional, but it helps the driver optimize for our application
     void createInstance()
     {
@@ -106,15 +133,18 @@ private:
         list(VkExtensionProperties)* availableExtensions = getAvailableExtensions();
 
         LOG("Checking for extensions");
+        const list(VkExtensionProperties)::iterator start = availableExtensions->begin();
+        const list(VkExtensionProperties)::iterator end = availableExtensions->end();
+
         for (int i = 0; i < extensionCount; ++i)
         {
             const char* extension = requiredExtensions[i];
 
-            const auto compareExtensions = [extension](VkExtensionProperties& props) {
-                return std::string(props.extensionName) == std::string(extension);
+            const auto includesExtension = [extension](VkExtensionProperties& props) {
+                return strcmp(props.extensionName, extension) == 0;
             };
 
-            if (!std::any_of(availableExtensions->begin(), availableExtensions->end(), compareExtensions)) {
+            if (!std::any_of(start, end, includesExtension)) {
                 LOGE("Extension " << extension << " is not available");
                 break;
             }

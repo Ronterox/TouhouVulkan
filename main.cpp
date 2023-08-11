@@ -106,8 +106,7 @@ private:
         list(VkExtensionProperties)* availableExtensions = getAvailableExtensions();
 
         LOG("Checking for extensions");
-        bool extensionsAvailable = true;
-        for (int i = 0; i < extensionCount && extensionsAvailable; ++i)
+        for (int i = 0; i < extensionCount; ++i)
         {
             const char* extension = requiredExtensions[i];
 
@@ -116,12 +115,10 @@ private:
             };
 
             if (!std::any_of(availableExtensions->begin(), availableExtensions->end(), compareExtensions)) {
-
                 LOGE("Extension " << extension << " is not available");
-                extensionsAvailable = false;
+                break;
             }
         }
-
 
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
             ERROR("Failed to create instance!");

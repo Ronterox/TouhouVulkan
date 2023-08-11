@@ -1,4 +1,5 @@
 #define GLFW_INCLUDE_VULKAN
+// #define NDEBUG
 #include <GLFW/glfw3.h>
 
 #include <iostream>
@@ -12,7 +13,8 @@
 #define LOGE(x) std::cerr << __FILE_LINE__ << x << std::endl
 #define ERROR(x) throw std::runtime_error(x)
 
-#define list(x) std::vector<x>
+template<typename T>
+using list = std::vector<T>;
 
 class HelloTriangleApplication
 {
@@ -29,7 +31,7 @@ private:
     const uint32_t WIDTH = 800;
     const uint32_t HEIGHT = 600;
 
-    const list(const char*) validationLayers = { "VK_LAYER_KHRONOS_validation" };
+    const list<const char*> validationLayers = { "VK_LAYER_KHRONOS_validation" };
 
 #ifdef NDEBUG
     const bool enableValidationLayers = false;
@@ -51,10 +53,8 @@ private:
         LOG("Initializing windows");
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 
-        if (!window)
-            LOGE("Window creation error!");
-        else
-            LOG("Window initialized!");
+        if (!window) LOGE("Window creation error!");
+        else LOG("Window initialized!");
     }
 
     void initVulkan()
@@ -65,16 +65,25 @@ private:
     void mainLoop()
     {
         glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GLFW_TRUE);
         });
 
-        while (!glfwWindowShouldClose(window))
-            glfwPollEvents();
+        while (!glfwWindowShouldClose(window)) glfwPollEvents();
+    }
+
+    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData) {
+
+        std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+
+        return VK_FALSE;
     }
 
     // Remember to free memory, LMAO
-    list(VkExtensionProperties)* getAvailableExtensions()
+    list<VkExtensionProperties>* getAvailableExtensions()
     {
         uint32_t extensionCount = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
@@ -96,16 +105,28 @@ private:
             const auto layerFound = [layerName](VkLayerProperties& props) {
                 return strcmp(props.layerName, layerName) == 0;
             };
-            if (!std::any_of(availableLayers.begin(), availableLayers.end(), layerFound))
-                return false;
+            if (!std::any_of(availableLayers.begin(), availableLayers.end(), layerFound)) return false;
         }
 
         return true;
     }
 
+    list<const char*> getRequiredExtensions() {
+        uint32_t glfwExtensionCount = 0;
+        const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+        list<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
+        if (enableValidationLayers) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+        return extensions;
+    }
+
     // This is optional, but it helps the driver optimize for our application
     void createInstance()
     {
+        if (enableValidationLayers && !checkValidationLayerSupport()) ERROR("Validation layers requested, but not available!");
+
         LOG("Creating instance");
         VkApplicationInfo appInfo{};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -123,19 +144,23 @@ private:
 
         LOG("Info created");
 
-        uint32_t extensionCount = 0;
-        const char** requiredExtensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+        list<const char*> requiredExtensions = getRequiredExtensions();
+        uint32_t extensionCount = static_cast<uint32_t>(requiredExtensions.size());
 
         createInfo.enabledExtensionCount = extensionCount;
-        createInfo.ppEnabledExtensionNames = requiredExtensions;
-        createInfo.enabledLayerCount = 0;
+        createInfo.ppEnabledExtensionNames = requiredExtensions.data();
 
-        list(VkExtensionProperties)* availableExtensions = getAvailableExtensions();
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        }
+        else
+            createInfo.enabledLayerCount = 0;
 
         LOG("Checking for extensions");
-        const list(VkExtensionProperties)::iterator start = availableExtensions->begin();
-        const list(VkExtensionProperties)::iterator end = availableExtensions->end();
+        list<VkExtensionProperties>* availableExtensions = getAvailableExtensions();
 
+        const list<VkExtensionProperties>::iterator start = availableExtensions->begin(), end = availableExtensions->end();
         for (int i = 0; i < extensionCount; ++i)
         {
             const char* extension = requiredExtensions[i];

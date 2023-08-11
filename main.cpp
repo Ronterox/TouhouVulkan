@@ -119,6 +119,7 @@ private:
                 break;
             }
         }
+        delete availableExtensions;
 
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
             ERROR("Failed to create instance!");
@@ -129,6 +130,9 @@ private:
     void cleanup()
     {
         LOG("Cleaning up");
+
+        vkDestroyInstance(instance, nullptr);
+        LOG("Instance destroyed!");
 
         glfwDestroyWindow(window);
         LOG("Window destroyed");

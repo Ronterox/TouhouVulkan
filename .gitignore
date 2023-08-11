@@ -1,2 +1,4 @@
-game
-main
+*
+*.*
+.vscode
+!Makefile

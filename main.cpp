@@ -6,8 +6,10 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <map>
+#include <optional>
 
-#define __FILE_LINE__ __FILE__ << ":" << __LINE__ << ":"
+#define __FILE_LINE__ __FILE__ << ':' << __LINE__ << ": "
 
 #define LOG(x) std::cout << __FILE_LINE__ << x << std::endl
 #define LOGE(x) std::cerr << __FILE_LINE__ << x << std::endl
@@ -52,6 +54,11 @@ private:
 
     GLFWwindow* window;
     VkInstance instance;
+
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    VkDevice device;
+    VkQueue graphicsQueue;
+
     VkDebugUtilsMessengerEXT debugMessenger;
 
     void initWindow()
@@ -72,6 +79,112 @@ private:
     {
         createInstance();
         setupDebugMessenger();
+        pickPhysicalDevice();
+        createLogicalDevice();
+    }
+
+    void createLogicalDevice() {
+        QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+        queueCreateInfo.queueCount = 1;
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        VkPhysicalDeviceFeatures deviceFeatures{}; // Will come back to this later
+
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        createInfo.enabledExtensionCount = 0;
+
+        // No longer necessary since it uses the same validation layers as the instance
+        // But keep it for old versions of Vulkan
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        }
+        else
+            createInfo.enabledLayerCount = 0;
+
+        if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
+            ERROR("Failed to create logical device!");
+
+        LOG("Logical device created!");
+        vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+    }
+
+    void pickPhysicalDevice() {
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+        if (deviceCount == 0) ERROR("Failed to find any GPUs with Vulkan support!");
+
+        list<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+        LOG("Finding suitable device");
+
+        std::multimap<int, VkPhysicalDevice> candidates;
+        for (VkPhysicalDevice& device : devices)
+        {
+            int score = rateDeviceSuitability(device);
+            candidates.insert(std::make_pair(score, device));
+        }
+
+        if (candidates.rbegin()->first > 0) {
+            physicalDevice = candidates.rbegin()->second;
+
+            VkPhysicalDeviceProperties deviceProperties;
+            vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+
+            LOG("Found suitable device: " << deviceProperties.deviceName);
+        }
+        else ERROR("Failed to find a suitable GPU!");
+    }
+
+    int rateDeviceSuitability(VkPhysicalDevice device) {
+        VkPhysicalDeviceProperties deviceProperties;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+        LOG('\t' << deviceProperties.deviceName);
+
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+        // Application can't function without geometry shaders
+        if (!deviceFeatures.geometryShader) return 0;
+
+        int score = 0;
+
+        // Discrete GPUs have a significant performance advantage
+        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            score += 1000;
+        }
+
+        if (findQueueFamilies(device).isComplete()) score += 100;
+
+        // Maximum possible size of textures affects graphics quality
+        score += deviceProperties.limits.maxImageDimension2D;
+
+        return score;
+    }
+
+    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData) {
+
+        LOGE("Validation layer: " << pCallbackData->pMessage);
+
+        return VK_FALSE;
     }
 
     void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) {
@@ -100,15 +213,31 @@ private:
         while (!glfwWindowShouldClose(window)) glfwPollEvents();
     }
 
-    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData) {
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
 
-        LOGE("Validation layer: " << pCallbackData->pMessage);
+        bool isComplete() {
+            return graphicsFamily.has_value();
+        }
+    };
 
-        return VK_FALSE;
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+        QueueFamilyIndices indices;
+
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+        list<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+        for (uint32_t i = 0; i < queueFamilies.size() && !indices.isComplete(); ++i)
+        {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = i;
+            }
+        }
+
+        return indices;
     }
 
     // Remember to free memory, LMAO
@@ -194,7 +323,7 @@ private:
         list<VkExtensionProperties>* availableExtensions = getAvailableExtensions();
 
         const list<VkExtensionProperties>::iterator start = availableExtensions->begin(), end = availableExtensions->end();
-        for (int i = 0; i < extensionCount; ++i)
+        for (uint32_t i = 0; i < extensionCount; ++i)
         {
             const char* extension = requiredExtensions[i];
 
@@ -211,8 +340,8 @@ private:
 
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
             ERROR("Failed to create instance!");
-        else
-            LOG("Instance created!");
+
+        LOG("Instance created!");
     }
 
     void cleanup()
@@ -221,8 +350,11 @@ private:
 
         if (enableValidationLayers) {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-            LOG("DebuUtilsMessenger destroyed!");
+            LOG("DebugUtilsMessenger destroyed!");
         }
+
+        vkDestroyDevice(device, nullptr);
+        LOG("Logical Device destroyed!");
 
         vkDestroyInstance(instance, nullptr);
         LOG("Instance destroyed!");

@@ -46,6 +46,7 @@ private:
     const uint32_t HEIGHT = 600;
 
     const list<const char*> validationLayers = { "VK_LAYER_KHRONOS_validation" };
+    const list<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
 #ifdef NDEBUG
     const bool enableValidationLayers = false;
@@ -174,14 +175,14 @@ private:
         else ERROR("Failed to find a suitable GPU!");
     }
 
-    int rateDeviceSuitability(VkPhysicalDevice device) {
+    int rateDeviceSuitability(VkPhysicalDevice physicalDevice) {
         VkPhysicalDeviceProperties deviceProperties;
-        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
 
         LOG('\t' << deviceProperties.deviceName);
 
         VkPhysicalDeviceFeatures deviceFeatures;
-        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+        vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
 
         // Application can't function without geometry shaders
         if (!deviceFeatures.geometryShader) return 0;
@@ -193,12 +194,29 @@ private:
             score += 1000;
         }
 
-        if (findQueueFamilies(device).isComplete()) score += 1000;
+        if (findQueueFamilies(physicalDevice).isComplete()) score += 1000;
+        if (checkDeviceExtensionSupport(physicalDevice)) score += 1000;
 
         // Maximum possible size of textures affects graphics quality
         score += deviceProperties.limits.maxImageDimension2D;
 
         return score;
+    }
+
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+        uint32_t extensionCount = 0;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+
+        list<VkExtensionProperties> availableExtensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+        std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+        // TODO: It says performance difference irrelevant
+        for (auto& extension : availableExtensions) {
+            requiredExtensions.erase(extension.extensionName);
+        }
+
+        return requiredExtensions.empty();
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -280,7 +298,7 @@ private:
         uint32_t extensionCount = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
 
-        auto* extensions = new std::vector<VkExtensionProperties>(extensionCount);
+        auto* extensions = new list<VkExtensionProperties>(extensionCount);
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions->data());
 
         return extensions;
@@ -290,9 +308,10 @@ private:
         uint32_t layerCount = 0;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
 
-        std::vector<VkLayerProperties> availableLayers(layerCount);
+        list<VkLayerProperties> availableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
+        // TODO: compare .erase() with any_of, to see what's more efficient
         for (const char* layerName : validationLayers) {
             const auto layerFound = [layerName](VkLayerProperties& props) {
                 return strcmp(props.layerName, layerName) == 0;

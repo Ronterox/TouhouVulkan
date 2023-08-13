@@ -6,8 +6,9 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
-#include <map>
 #include <optional>
+#include <map>
+#include <set>
 
 #define __FILE_LINE__ __FILE__ << ':' << __LINE__ << ": "
 
@@ -57,9 +58,10 @@ private:
 
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device;
-    VkQueue graphicsQueue;
+    VkQueue graphicsQueue, presentQueue;
 
     VkDebugUtilsMessengerEXT debugMessenger;
+    VkSurfaceKHR surface;
 
     void initWindow()
     {
@@ -79,27 +81,47 @@ private:
     {
         createInstance();
         setupDebugMessenger();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+    }
+
+    void createSurface() {
+        if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS)
+            ERROR("Failed to create window surface!");
     }
 
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-        queueCreateInfo.queueCount = 1;
+        list<VkDeviceQueueCreateInfo> queueCreateInfos;
+
+        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+
         float queuePriority = 1.0f;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
+        for (uint32_t i : uniqueQueueFamilies)
+        {
+            VkDeviceQueueCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            createInfo.queueFamilyIndex = i;
+            createInfo.queueCount = 1;
+            createInfo.pQueuePriorities = &queuePriority;
+
+            queueCreateInfos.push_back(createInfo);
+        }
+
+        LOG("Queues Set up!");
 
         VkPhysicalDeviceFeatures deviceFeatures{}; // Will come back to this later
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
-        createInfo.pQueueCreateInfos = &queueCreateInfo;
-        createInfo.queueCreateInfoCount = 1;
+        createInfo.pQueueCreateInfos = queueCreateInfos.data();
+        createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+
+        // TODO: (uint32_t) vs static_cast<uint32_t>
+        // TODO: why use uint32_t instead of uint
 
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = 0;
@@ -118,6 +140,9 @@ private:
 
         LOG("Logical device created!");
         vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+        vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+
+        // TODO: What is a "default framebuffer"
     }
 
     void pickPhysicalDevice() {
@@ -168,7 +193,7 @@ private:
             score += 1000;
         }
 
-        if (findQueueFamilies(device).isComplete()) score += 100;
+        if (findQueueFamilies(device).isComplete()) score += 1000;
 
         // Maximum possible size of textures affects graphics quality
         score += deviceProperties.limits.maxImageDimension2D;
@@ -215,9 +240,10 @@ private:
 
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentFamily;
 
         bool isComplete() {
-            return graphicsFamily.has_value();
+            return graphicsFamily.has_value() && presentFamily.has_value();
         }
     };
 
@@ -232,8 +258,16 @@ private:
 
         for (uint32_t i = 0; i < queueFamilies.size() && !indices.isComplete(); ++i)
         {
+            // Drawing and presentation in the same queue == performance
             if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
+            }
+
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+            if (presentSupport) {
+                indices.presentFamily = i;
             }
         }
 
@@ -350,11 +384,14 @@ private:
 
         if (enableValidationLayers) {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-            LOG("DebugUtilsMessenger destroyed!");
+            LOG("Debug Messenger destroyed!");
         }
 
         vkDestroyDevice(device, nullptr);
         LOG("Logical Device destroyed!");
+
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        LOG("Surface destroyed!");
 
         vkDestroyInstance(instance, nullptr);
         LOG("Instance destroyed!");

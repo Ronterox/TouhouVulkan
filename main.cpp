@@ -87,6 +87,15 @@ private:
         createLogicalDevice();
     }
 
+    void mainLoop()
+    {
+        glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GLFW_TRUE);
+        });
+
+        while (!glfwWindowShouldClose(window)) glfwPollEvents();
+    }
+
     void createSurface() {
         if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS)
             ERROR("Failed to create window surface!");
@@ -121,9 +130,6 @@ private:
         createInfo.pQueueCreateInfos = queueCreateInfos.data();
         createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 
-        // TODO: (uint32_t) vs static_cast<uint32_t>
-        // TODO: why use uint32_t instead of uint
-
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = 0;
 
@@ -142,8 +148,6 @@ private:
         LOG("Logical device created!");
         vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
         vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
-
-        // TODO: What is a "default framebuffer"
     }
 
     void pickPhysicalDevice() {
@@ -158,7 +162,7 @@ private:
         LOG("Finding suitable device");
 
         std::multimap<int, VkPhysicalDevice> candidates;
-        for (VkPhysicalDevice& device : devices)
+        for (auto& device : devices)
         {
             int score = rateDeviceSuitability(device);
             candidates.insert(std::make_pair(score, device));
@@ -175,14 +179,14 @@ private:
         else ERROR("Failed to find a suitable GPU!");
     }
 
-    int rateDeviceSuitability(VkPhysicalDevice physicalDevice) {
+    int rateDeviceSuitability(VkPhysicalDevice device) {
         VkPhysicalDeviceProperties deviceProperties;
-        vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
 
         LOG('\t' << deviceProperties.deviceName);
 
         VkPhysicalDeviceFeatures deviceFeatures;
-        vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
         // Application can't function without geometry shaders
         if (!deviceFeatures.geometryShader) return 0;
@@ -194,8 +198,12 @@ private:
             score += 1000;
         }
 
-        if (findQueueFamilies(physicalDevice).isComplete()) score += 1000;
-        if (checkDeviceExtensionSupport(physicalDevice)) score += 1000;
+        if (findQueueFamilies(device).isComplete()) score += 1000;
+        if (checkDeviceExtensionSupport(device)) {
+            score += 1000;
+            SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+            if (swapChainSupport.formats.empty() || swapChainSupport.presentModes.empty()) return 0;
+        }
 
         // Maximum possible size of textures affects graphics quality
         score += deviceProperties.limits.maxImageDimension2D;
@@ -247,15 +255,6 @@ private:
             ERROR("Failed to set up debug messenger!");
     }
 
-    void mainLoop()
-    {
-        glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GLFW_TRUE);
-        });
-
-        while (!glfwWindowShouldClose(window)) glfwPollEvents();
-    }
-
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
         std::optional<uint32_t> presentFamily;
@@ -264,6 +263,35 @@ private:
             return graphicsFamily.has_value() && presentFamily.has_value();
         }
     };
+
+    struct SwapChainSupportDetails {
+        VkSurfaceCapabilitiesKHR capabilities;
+        list<VkSurfaceFormatKHR> formats;
+        list<VkPresentModeKHR> presentModes;
+    };
+
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+        SwapChainSupportDetails details;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+
+        uint32_t formatCount = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+
+        if (formatCount != 0) {
+            details.formats.resize(formatCount);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+        }
+
+        uint32_t presentModeCount = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+
+        if (presentModeCount != 0) {
+            details.presentModes.resize(presentModeCount);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+        }
+
+        return details;
+    }
 
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
         QueueFamilyIndices indices;
@@ -292,16 +320,13 @@ private:
         return indices;
     }
 
-    // Remember to free memory, LMAO
-    list<VkExtensionProperties>* getAvailableExtensions()
+    void setAvailableExtensions(list<VkExtensionProperties>& extensions)
     {
         uint32_t extensionCount = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
 
-        auto* extensions = new list<VkExtensionProperties>(extensionCount);
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions->data());
-
-        return extensions;
+        extensions.resize(extensionCount);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
     }
 
     bool checkValidationLayerSupport() {
@@ -373,9 +398,11 @@ private:
             createInfo.enabledLayerCount = 0;
 
         LOG("Checking for extensions");
-        list<VkExtensionProperties>* availableExtensions = getAvailableExtensions();
 
-        const list<VkExtensionProperties>::iterator start = availableExtensions->begin(), end = availableExtensions->end();
+        auto availableExtensions = list<VkExtensionProperties>();
+        setAvailableExtensions(availableExtensions);
+
+        const list<VkExtensionProperties>::iterator start = availableExtensions.begin(), end = availableExtensions.end();
         for (uint32_t i = 0; i < extensionCount; ++i)
         {
             const char* extension = requiredExtensions[i];
@@ -389,7 +416,6 @@ private:
                 break;
             }
         }
-        delete availableExtensions;
 
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
             ERROR("Failed to create instance!");

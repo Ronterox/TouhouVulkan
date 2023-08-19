@@ -66,6 +66,11 @@ private:
     VkSurfaceKHR surface;
 
     VkSwapchainKHR swapChain;
+    list<VkImage> swapChainImages;
+    list<VkImageView> swapChainImageViews;
+
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
 
     void initWindow()
     {
@@ -89,6 +94,7 @@ private:
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
     }
 
     void mainLoop()
@@ -98,6 +104,30 @@ private:
         });
 
         while (!glfwWindowShouldClose(window)) glfwPollEvents();
+    }
+
+    void createImageViews() {
+        swapChainImageViews.resize(swapChainImages.size());
+        for (uint32_t i = 0; i < swapChainImages.size(); i++)
+        {
+            VkImageViewCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = swapChainImages[i];
+
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            createInfo.format = swapChainImageFormat;
+
+            createInfo.components.a = createInfo.components.g = createInfo.components.b = createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY; // Default
+
+            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            createInfo.subresourceRange.baseMipLevel = 0;
+            createInfo.subresourceRange.levelCount = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount = 1;
+
+            if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS)
+                ERROR("Failed to create image views!");
+        }
     }
 
     void createSwapChain() {
@@ -111,7 +141,7 @@ private:
 
         if (swapChainSupport.capabilities.maxImageCount > 0 && swapChainSupport.capabilities.maxImageCount < imageCount)
             imageCount = swapChainSupport.capabilities.maxImageCount;
-        
+
         VkSwapchainCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         createInfo.surface = surface;
@@ -146,7 +176,14 @@ private:
 
         if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS)
             ERROR("Failed to create swap chain!");
-        
+
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+        swapChainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+
+        swapChainImageFormat = surfaceFormat.format;
+        swapChainExtent = extent;
+
         LOG("Created swapchain!");
     }
 
@@ -520,10 +557,8 @@ private:
     {
         LOG("Cleaning up");
 
-        if (enableValidationLayers) {
-            DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-            LOG("Debug Messenger destroyed!");
-        }
+        for (auto& imageView : swapChainImageViews) vkDestroyImageView(device, imageView, nullptr);
+        LOG("Image views destroyed!");
 
         vkDestroySwapchainKHR(device, swapChain, nullptr);
         LOG("Swapchain destroyed!");
@@ -533,6 +568,11 @@ private:
 
         vkDestroySurfaceKHR(instance, surface, nullptr);
         LOG("Surface destroyed!");
+
+        if (enableValidationLayers) {
+            DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+            LOG("Debug Messenger destroyed!");
+        }
 
         vkDestroyInstance(instance, nullptr);
         LOG("Instance destroyed!");

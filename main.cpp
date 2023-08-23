@@ -3,23 +3,14 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
-#include <iostream>
 #include <optional>
 #include <fstream>
 #include <cstring>
-#include <vector>
 #include <limits>
 #include <map>
 #include <set>
 
-#define __FILE_LINE__ __FILE__ << ':' << __LINE__ << ": "
-
-#define LOG(x) std::cout << __FILE_LINE__ << x << std::endl
-#define LOGE(x) std::cerr << __FILE_LINE__ << x << std::endl
-#define ERROR(x) throw std::runtime_error(x)
-
-template<typename T>
-using list = std::vector<T>;
+#include "utils.h"
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
     auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");

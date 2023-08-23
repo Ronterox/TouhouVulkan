@@ -1,6 +1,9 @@
 CFLAGS = -std=c++17
 LDFLAGS = -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
 
+cpp_files = $(wildcard *.cpp)
+out_files = $(cpp_files:.cpp=.out)
+
 GLSLC = glslc/bin/glslc
 SHADER_DIR = shaders
 
@@ -9,12 +12,10 @@ shader_verts = $(wildcard $(SHADER_DIR)/*.vert)
 spv_files = $(shader_frags:.frag=.spv) $(shader_verts:.vert=.spv)
 
 .SILENT:
-all: compile run clean
+all: main.run clean
 
-test: $(spv_files)
-
-compile: main.cpp
-	g++ $(CFLAGS) main.cpp -o game $(LDFLAGS)
+%.out: %.cpp
+	g++ $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 %.spv: %.frag
 	$(GLSLC) $^ -o $@
@@ -22,9 +23,9 @@ compile: main.cpp
 %.spv: %.vert
 	$(GLSLC) $^ -o $@
 
-run: game $(spv_files)
-	./game
+%.run: %.out $(spv_files)
+	./$(@:.run=.out)
 
-.PHONY: all clean
+.PHONY: all clean test
 clean:
-	rm -f game $(spv_files)
+	rm -f $(out_files) $(spv_files)

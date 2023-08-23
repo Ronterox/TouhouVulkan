@@ -39,7 +39,7 @@ static list<char> readFile(const std::string& filename) {
 
     if (!file.is_open()) ERROR("Failed to open file!");
 
-    size_t fileSize = file.tellg(); // TODO: Check if optional casting
+    size_t fileSize = file.tellg();
     list<char> buffer(fileSize);
 
     file.seekg(0);
@@ -382,7 +382,6 @@ private:
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
 
         std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
-        // TODO: It says performance difference irrelevant
         for (const auto& extension : availableExtensions) {
             requiredExtensions.erase(extension.extensionName);
         }
@@ -525,7 +524,6 @@ private:
         list<VkLayerProperties> availableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
-        // TODO: compare .erase() with any_of, to see what's more efficient
         for (const char* layerName : validationLayers) {
             const auto layerFound = [layerName](VkLayerProperties& props) {
                 return strcmp(props.layerName, layerName) == 0;

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <iostream>
 #include <optional>
+#include <fstream>
 #include <cstring>
 #include <vector>
 #include <limits>
@@ -29,6 +30,32 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
     auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
     if (func != nullptr)
         func(instance, debugMessenger, pAllocator);
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+    void* pUserData) {
+
+    LOGE("Validation layer: " << pCallbackData->pMessage);
+
+    return VK_FALSE;
+}
+
+static list<char> readFile(const std::string& filename) {
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open()) ERROR("Failed to open file!");
+
+    size_t fileSize = file.tellg(); // TODO: Check if optional casting
+    list<char> buffer(fileSize);
+
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+
+    file.close();
+    return buffer;
 }
 
 class HelloTriangleApplication
@@ -95,6 +122,7 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createGraphicsPipeline();
     }
 
     void mainLoop()
@@ -104,6 +132,12 @@ private:
         });
 
         while (!glfwWindowShouldClose(window)) glfwPollEvents();
+    }
+
+    void createGraphicsPipeline() {
+        list<char> vertShaderCode = readFile("shaders/vert.spv");
+        list<char> fragShaderCode = readFile("shaders/frag.spv");
+        LOG(vertShaderCode.size());
     }
 
     void createImageViews() {
@@ -318,17 +352,6 @@ private:
         }
 
         return requiredExtensions.empty();
-    }
-
-    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData) {
-
-        LOGE("Validation layer: " << pCallbackData->pMessage);
-
-        return VK_FALSE;
     }
 
     void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) {

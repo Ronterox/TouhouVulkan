@@ -94,6 +94,8 @@ private:
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
 
+    list<VkFramebuffer> swapChainFramebuffers;
+
     void initWindow()
     {
         if (!glfwInit()) LOGE("GLFW Initialization Error!");
@@ -119,6 +121,7 @@ private:
         createImageViews();
         createRenderPass();
         createGraphicsPipeline();
+        createFramebuffers();
     }
 
     void mainLoop()
@@ -128,6 +131,23 @@ private:
         });
 
         while (!glfwWindowShouldClose(window)) glfwPollEvents();
+    }
+
+    void createFramebuffers(){
+        swapChainFramebuffers.resize(swapChainImageViews.size());
+
+        for (uint32_t i = 0; i < swapChainImageViews.size(); ++i){
+            VkFramebufferCreateInfo framebufferInfo{ sType: VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+            framebufferInfo.renderPass = renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = &swapChainImageViews[i];
+            framebufferInfo.width = swapChainExtent.width;
+            framebufferInfo.height = swapChainExtent.height;
+            framebufferInfo.layers = 1;
+
+            if(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
+                ERROR("Failed to create framebuffer!");
+        }
     }
 
     void createRenderPass() {
@@ -749,15 +769,16 @@ private:
     void cleanup()
     {
         LOG("Cleaning up");
-
-        vkDestroyRenderPass(device, renderPass, nullptr);
-        LOG("Render pass destroyed!");
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        LOG("Graphics pipeline destroyed!");
 
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         LOG("Pipeline layout destroyed!");
 
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-        LOG("Graphics pipeline destroyed!");
+        vkDestroyRenderPass(device, renderPass, nullptr);
+        LOG("Render pass destroyed!");
+
+        for (auto& framebuffer : swapChainFramebuffers) vkDestroyFramebuffer(device, framebuffer, nullptr);
 
         for (auto& imageView : swapChainImageViews) vkDestroyImageView(device, imageView, nullptr);
         LOG("Image views destroyed!");

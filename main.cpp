@@ -90,6 +90,7 @@ private:
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
 
+    VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
 
     void initWindow()
@@ -115,6 +116,7 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createRenderPass();
         createGraphicsPipeline();
     }
 
@@ -125,6 +127,42 @@ private:
         });
 
         while (!glfwWindowShouldClose(window)) glfwPollEvents();
+    }
+
+    void createRenderPass() {
+        VkAttachmentDescription colorAttachment{};
+        colorAttachment.format = swapChainImageFormat;
+        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT; // No multisampling
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // Clear framebuffer before drawing
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; // Store framebuffer after drawing
+        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Don't care about stencil
+        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // Don't care about stencil
+
+        // Layouts for the image before and after rendering
+        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        // Subpasses and attachment references
+        VkAttachmentReference colorAttachmentRef{};
+        colorAttachmentRef.attachment = 0; // Index of the attachment in the attachment descriptions array
+        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        // Subpass
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; // Subpass is a graphics subpass
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &colorAttachmentRef;
+
+        // Render pass
+        VkRenderPassCreateInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassInfo.attachmentCount = 1; // Number of attachments
+        renderPassInfo.pAttachments = &colorAttachment; // Attachments
+        renderPassInfo.subpassCount = 1; // Number of subpasses
+        renderPassInfo.pSubpasses = &subpass; // Subpasses
+
+        if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
+            ERROR("Failed to create render pass!");
     }
 
     void createGraphicsPipeline() {
@@ -685,6 +723,9 @@ private:
     void cleanup()
     {
         LOG("Cleaning up");
+
+        vkDestroyRenderPass(device, renderPass, nullptr);
+        LOG("Render pass destroyed!");
 
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         LOG("Pipeline layout destroyed!");

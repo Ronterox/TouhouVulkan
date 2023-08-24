@@ -96,6 +96,9 @@ private:
 
     list<VkFramebuffer> swapChainFramebuffers;
 
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
+
     void initWindow()
     {
         if (!glfwInit()) LOGE("GLFW Initialization Error!");
@@ -122,6 +125,8 @@ private:
         createRenderPass();
         createGraphicsPipeline();
         createFramebuffers();
+        createCommandPool();
+        createCommandBuffer();
     }
 
     void mainLoop()
@@ -133,10 +138,38 @@ private:
         while (!glfwWindowShouldClose(window)) glfwPollEvents();
     }
 
-    void createFramebuffers(){
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+        VkCommandBufferBeginInfo beginInfo{ sType: VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+
+        if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
+            ERROR("Failed to begin recording command buffer!");
+    }
+
+    void createCommandBuffer() {
+        VkCommandBufferAllocateInfo allocInfo{ sType: VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO }; 
+        allocInfo.commandPool = commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS)
+            ERROR("Failed to allocate command buffer!");
+    }
+
+    void createCommandPool() {
+        QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+        VkCommandPoolCreateInfo poolInfo{ sType: VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+
+        if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
+            ERROR("Failed to create command pool!");
+    }
+
+    void createFramebuffers() {
         swapChainFramebuffers.resize(swapChainImageViews.size());
 
-        for (uint32_t i = 0; i < swapChainImageViews.size(); ++i){
+        for (uint32_t i = 0; i < swapChainImageViews.size(); ++i) {
             VkFramebufferCreateInfo framebufferInfo{ sType: VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
             framebufferInfo.renderPass = renderPass;
             framebufferInfo.attachmentCount = 1;
@@ -145,7 +178,7 @@ private:
             framebufferInfo.height = swapChainExtent.height;
             framebufferInfo.layers = 1;
 
-            if(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
+            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
                 ERROR("Failed to create framebuffer!");
         }
     }
@@ -293,7 +326,7 @@ private:
 
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
             ERROR("Failed to create pipeline layout!");
-        
+
         LOG("Pipeline layout created!");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{ sType: VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
@@ -312,7 +345,7 @@ private:
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
-        if(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
             ERROR("Failed to create graphics pipeline!");
 
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
@@ -769,6 +802,10 @@ private:
     void cleanup()
     {
         LOG("Cleaning up");
+
+        vkDestroyCommandPool(device, commandPool, nullptr);
+        LOG("Command pool destroyed!");
+
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         LOG("Graphics pipeline destroyed!");
 

@@ -92,6 +92,7 @@ private:
 
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
 
     void initWindow()
     {
@@ -262,12 +263,37 @@ private:
         colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
         colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{ sType: VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
             ERROR("Failed to create pipeline layout!");
         
         LOG("Pipeline layout created!");
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{ sType: VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+        pipelineInfo.pViewportState = &viewportStateInfo;
+        pipelineInfo.pRasterizationState = &rasterizerInfo;
+        pipelineInfo.pMultisampleState = &multisamplingInfo;
+        pipelineInfo.pDepthStencilState = nullptr; // Optional
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = &dynamicStateInfo;
+
+        pipelineInfo.layout = pipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        if(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
+            ERROR("Failed to create graphics pipeline!");
 
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
@@ -729,6 +755,9 @@ private:
 
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         LOG("Pipeline layout destroyed!");
+
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        LOG("Graphics pipeline destroyed!");
 
         for (auto& imageView : swapChainImageViews) vkDestroyImageView(device, imageView, nullptr);
         LOG("Image views destroyed!");

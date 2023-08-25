@@ -135,7 +135,14 @@ private:
             if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GLFW_TRUE);
         });
 
-        while (!glfwWindowShouldClose(window)) glfwPollEvents();
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+            drawFrame();
+        }
+    }
+
+    void drawFrame() {
+
     }
 
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
@@ -143,10 +150,44 @@ private:
 
         if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
             ERROR("Failed to begin recording command buffer!");
+
+        VkRenderPassBeginInfo renderPassInfo{ sType: VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        renderPassInfo.renderPass = renderPass;
+        renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
+        // Area to render to
+        renderPassInfo.renderArea.offset = { 0, 0 };
+        renderPassInfo.renderArea.extent = swapChainExtent;
+
+        VkClearValue clearColor = { .color = { 0.f, 0.f, 0.f, 1.f } };
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearColor;
+
+        VkViewport viewport{};
+        viewport.x = viewport.y = .0f;
+        viewport.width = static_cast<float>(swapChainExtent.width);
+        viewport.height = static_cast<float>(swapChainExtent.height);
+        viewport.minDepth = .0f;
+        viewport.maxDepth = 1.f;
+
+        VkRect2D scissor{ };
+        scissor.offset = { 0, 0 };
+        scissor.extent = swapChainExtent;
+
+        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+        vkCmdEndRenderPass(commandBuffer);
+
+        if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
+            ERROR("Failed to record command buffer!");
     }
 
     void createCommandBuffer() {
-        VkCommandBufferAllocateInfo allocInfo{ sType: VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO }; 
+        VkCommandBufferAllocateInfo allocInfo{ sType: VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
         allocInfo.commandPool = commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = 1;

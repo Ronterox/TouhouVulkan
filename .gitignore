@@ -1,3 +1,4 @@
 glslc/
 .vscode/
 *.spv
+*.out

@@ -8,5 +8,4 @@
 #define ERROR(x) throw std::runtime_error(x)
 
 #include <vector>
-template<typename T>
-using list = std::vector<T>;
+template <typename T> using list = std::vector<T>;

@@ -2,17 +2,17 @@
 CFLAGS = -std=c++17
 LDFLAGS = -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
 
+OUT_FILES = $(*.cpp:.cpp=.out)
+
 .SILENT:
+all: main.run clean
 
-all: test clean
+%.out: %.cpp
+	g++ $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-main.out: main.cpp
-	g++ $(CFLAGS) -o "$@" main.cpp $(LDFLAGS)
+%.run: %.out
+	./$(@:.run=.out)
 
-.PHONY: test clean
-
-test: main.out
-	./main.out
-
+.PHONY: clean
 clean:
-	rm -f main.out
+	rm -f $(OUT_FILES)

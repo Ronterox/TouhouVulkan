@@ -1,9 +1,5 @@
 #include <algorithm>
-#include <cstdlib>
 #include <cstring>
-#include <exception>
-
-#include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -14,6 +10,13 @@ class TouhouEngine {
   public:
 	const int WIDTH = 800;
 	const int HEIGHT = 800;
+
+	const list<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+#ifdef NDEBUG
+	const bool enableValidationLayers = false;
+#else
+	const bool enableValidationLayers = true;
+#endif
 
 	GLFWwindow *window;
 	VkInstance instance;
@@ -26,6 +29,23 @@ class TouhouEngine {
 	}
 
   private:
+	bool checkValidationLayerSupport() {
+		uint32_t layerCount;
+		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+		list<VkLayerProperties> availableLayers(layerCount);
+		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+		for (const char *layerName : validationLayers) {
+			if (std::none_of(availableLayers.begin(), availableLayers.end(),
+							 [&](const auto &layer) { return strcmp(layer.layerName, layerName) == 0; })) {
+				LOGE("Missing validation layer: " << layerName);
+				return false;
+			}
+		}
+		return true;
+	}
+
 	void initWindow() {
 		LOG("Initializing window GLFW");
 		glfwInit();
@@ -39,6 +59,10 @@ class TouhouEngine {
 
 	void createVkInstance() {
 		LOG("Create Vulkan instance");
+
+		if (enableValidationLayers && !checkValidationLayerSupport()) {
+			ERROR("Validation layers requested, but not available!");
+		}
 
 		VkApplicationInfo appInfo{
 			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -61,6 +85,11 @@ class TouhouEngine {
 			.enabledExtensionCount = glfwExtensionCount,
 			.ppEnabledExtensionNames = glfwExtensions,
 		};
+
+		if (enableValidationLayers) {
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
 
 		uint32_t vkExtensionCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &vkExtensionCount, nullptr);

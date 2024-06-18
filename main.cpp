@@ -6,20 +6,49 @@
 
 #include "utils.h"
 
-class TouhouEngine {
-  public:
-	const int WIDTH = 800;
-	const int HEIGHT = 800;
+const int WIDTH = 800;
+const int HEIGHT = 800;
 
-	const list<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+const list<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 #ifdef NDEBUG
-	const bool enableValidationLayers = false;
+const bool enableValidationLayers = false;
 #else
-	const bool enableValidationLayers = true;
+const bool enableValidationLayers = true;
 #endif
 
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+													VkDebugUtilsMessageTypeFlagsEXT messageType,
+													const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+													void *pUserData) {
+	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+		LOGE("Validation layer: " << pCallbackData->pMessage);
+	}
+	return VK_FALSE;
+}
+
+VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
+										const VkAllocationCallbacks *pAllocator,
+										VkDebugUtilsMessengerEXT *pDebugMessenger) {
+	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+	if (func == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
+
+	return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
+}
+
+void vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
+									 const VkAllocationCallbacks *pAllocator) {
+	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+	if (func == nullptr) return;
+
+	func(instance, debugMessenger, pAllocator);
+}
+
+class TouhouEngine {
+  public:
 	GLFWwindow *window;
 	VkInstance instance;
+
+	VkDebugUtilsMessengerEXT debugMessenger;
 
 	void run() {
 		initWindow();
@@ -46,6 +75,32 @@ class TouhouEngine {
 		return true;
 	}
 
+	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
+		createInfo = {
+			.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+			.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+							   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+							   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+			.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+						   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+						   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+			.pfnUserCallback = debugCallback,
+		};
+	}
+
+	void setupDebugMessenger() {
+		if (!enableValidationLayers) return;
+
+		LOG("Setting up debug messenger");
+		VkDebugUtilsMessengerCreateInfoEXT createInfo;
+		populateDebugMessengerCreateInfo(createInfo);
+
+		LOG("Creating debug messenger");
+		if (vkCreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
+			ERROR("Failed to set up debug messenger");
+		}
+	}
+
 	void initWindow() {
 		LOG("Initializing window GLFW");
 		glfwInit();
@@ -55,6 +110,20 @@ class TouhouEngine {
 
 		LOG("Creating window GLFW");
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Touhou Engine", nullptr, nullptr);
+	}
+
+	void verifyVkExtensions(list<const char *> glfwRequiredEXT) {
+		uint32_t vkExtensionCount = 0;
+		vkEnumerateInstanceExtensionProperties(nullptr, &vkExtensionCount, nullptr);
+		list<VkExtensionProperties> extensions(vkExtensionCount);
+		vkEnumerateInstanceExtensionProperties(nullptr, &vkExtensionCount, extensions.data());
+
+		for (uint i = 0; i < glfwRequiredEXT.size(); ++i) {
+			if (std::none_of(extensions.begin(), extensions.end(),
+							 [&](const auto &ext) { return strcmp(ext.extensionName, glfwRequiredEXT[i]) == 0; })) {
+				ERROR("Missing required extension" + std::string(glfwRequiredEXT[i]));
+			}
+		}
 	}
 
 	void createVkInstance() {
@@ -76,32 +145,32 @@ class TouhouEngine {
 		LOG("Obtaining required extensions for GLFW");
 
 		uint32_t glfwExtensionCount = 0;
-		const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+		const char **glfwRequiredEXT = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+		LOG("Checking for Validation Layers");
+		list<const char *> glfwExtensions(glfwRequiredEXT, glfwRequiredEXT + glfwExtensionCount);
+		if (enableValidationLayers) {
+			glfwExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		}
 
 		VkInstanceCreateInfo createInfo{
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 			.pApplicationInfo = &appInfo,
 			.enabledLayerCount = 0,
-			.enabledExtensionCount = glfwExtensionCount,
-			.ppEnabledExtensionNames = glfwExtensions,
+			.enabledExtensionCount = static_cast<uint32_t>(glfwExtensions.size()),
+			.ppEnabledExtensionNames = glfwExtensions.data(),
 		};
 
+		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 		if (enableValidationLayers) {
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			createInfo.ppEnabledLayerNames = validationLayers.data();
+
+			populateDebugMessengerCreateInfo(debugCreateInfo);
+			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
 		}
 
-		uint32_t vkExtensionCount = 0;
-		vkEnumerateInstanceExtensionProperties(nullptr, &vkExtensionCount, nullptr);
-		list<VkExtensionProperties> extensions(vkExtensionCount);
-		vkEnumerateInstanceExtensionProperties(nullptr, &vkExtensionCount, extensions.data());
-
-		for (uint i = 0; i < glfwExtensionCount; ++i) {
-			if (std::none_of(extensions.begin(), extensions.end(),
-							 [&](const auto &ext) { return strcmp(ext.extensionName, glfwExtensions[i]) == 0; })) {
-				ERROR("Missing required extension" + std::string(glfwExtensions[i]));
-			}
-		}
+		verifyVkExtensions(glfwExtensions);
 
 		LOG("Creating Vulkan instance");
 		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
@@ -111,7 +180,10 @@ class TouhouEngine {
 		LOG("Vulkan instance created");
 	}
 
-	void initVulkan() { createVkInstance(); }
+	void initVulkan() {
+		createVkInstance();
+		setupDebugMessenger();
+	}
 
 	void mainLoop() {
 		LOG("Running main loop");
@@ -123,6 +195,10 @@ class TouhouEngine {
 		}
 	}
 	void cleanup() {
+		if (enableValidationLayers) {
+			vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+		}
+
 		LOG("Destroying Vulkan instance");
 		vkDestroyInstance(instance, nullptr);
 

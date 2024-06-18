@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstring>
+#include <map>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -21,7 +22,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 													const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
 													void *pUserData) {
 	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-
 		const char *severity = "";
 		switch (messageSeverity) {
 		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
@@ -60,6 +60,8 @@ class TouhouEngine {
   public:
 	GLFWwindow *window;
 	VkInstance instance;
+
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
 	VkDebugUtilsMessengerEXT debugMessenger;
 
@@ -193,9 +195,64 @@ class TouhouEngine {
 		LOG("Vulkan instance created");
 	}
 
+	void pickPhysicalDevice() {
+		uint32_t physicalDeviceCount = 5;
+		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
+
+		list<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+
+		if (physicalDeviceCount == 0) {
+			ERROR("Failed to find GPUs with Vulkan support!");
+		}
+
+		std::multimap<int, VkPhysicalDevice> candidates;
+		for (const auto &device : physicalDevices) {
+			int score = getDeviceScore(device);
+			candidates.insert(std::make_pair(score, device));
+		}
+
+		LOG(candidates.size() << " GPUs found");
+		if (candidates.rbegin()->first > 0) {
+			physicalDevice = candidates.rbegin()->second;
+		} else {
+			ERROR("Failed to find a suitable GPU!");
+		}
+
+		LOG("GPU successfully selected");
+	}
+
+	int getDeviceScore(VkPhysicalDevice device) {
+		LOG("Obtaining device properties");
+
+		VkPhysicalDeviceProperties deviceProperties;
+		vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+		VkPhysicalDeviceFeatures deviceFeatures;
+		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+		const char *deviceName = deviceProperties.deviceName;
+		LOG("Checking for geometry shader support for " << deviceName);
+
+		if (!deviceFeatures.geometryShader) return 0;
+
+		int score = 0;
+		LOG("Checking for discrete GPU for " << deviceName);
+		if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+			score += 1000;
+		}
+
+		score += deviceProperties.limits.maxImageDimension2D;
+
+		LOG("Device " << deviceName << " has a score of " << score);
+
+		return score;
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
+		pickPhysicalDevice();
 	}
 
 	void mainLoop() {

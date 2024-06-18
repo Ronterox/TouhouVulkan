@@ -21,7 +21,20 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 													const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
 													void *pUserData) {
 	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-		LOGE("Validation layer: " << pCallbackData->pMessage);
+
+		const char *severity = "";
+		switch (messageSeverity) {
+		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+			severity = "WARNING";
+			break;
+		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+			severity = "ERROR";
+			break;
+		default:
+			severity = "INFO";
+			break;
+		}
+		LOGE("VL_" << severity << ": " << pCallbackData->pMessage);
 	}
 	return VK_FALSE;
 }

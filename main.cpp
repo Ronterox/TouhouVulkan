@@ -2,6 +2,7 @@
 #include <cstring>
 #include <map>
 #include <optional>
+#include <set>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -19,9 +20,9 @@ const bool enableValidationLayers = true;
 #endif
 
 struct QueueFamilyIndices {
-	std::optional<uint32_t> graphicsFamily;
+	std::optional<uint32_t> graphicsFamily, presentFamily;
 
-	bool isComplete() { return graphicsFamily.has_value(); }
+	bool isComplete() { return graphicsFamily.has_value() && presentFamily.has_value(); }
 };
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -68,7 +69,8 @@ class TouhouEngine {
 	GLFWwindow *window;
 	VkInstance instance;
 
-	VkQueue graphicsQueue;
+	VkSurfaceKHR surface;
+	VkQueue graphicsQueue, presentQueue;
 	VkDevice device;
 
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -243,10 +245,16 @@ class TouhouEngine {
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
 		QueueFamilyIndices indices;
-		for (uint32_t i = 0; i < queueFamilyCount; ++i) {
+		for (uint32_t i = 0; i < queueFamilyCount && !indices.isComplete(); ++i) {
+			VkBool32 presentSupport = false;
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+			if (presentSupport) {
+				indices.presentFamily = i;
+			}
+
 			if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 				indices.graphicsFamily = i;
-				if (indices.isComplete()) break;
 			}
 		}
 		return indices;
@@ -288,18 +296,24 @@ class TouhouEngine {
 		LOG("Creating logical device");
 		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
+		list<VkDeviceQueueCreateInfo> queueCreateInfos;
+		std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+
 		float queuePriority = 1.0f;
-		VkDeviceQueueCreateInfo queueCreateInfo{
-			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-			.queueFamilyIndex = indices.graphicsFamily.value(),
-			.queueCount = 1,
-			.pQueuePriorities = &queuePriority,
-		};
+		for (uint32_t queueFamily : uniqueQueueFamilies) {
+			VkDeviceQueueCreateInfo queueCreateInfo{
+				.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+				.queueFamilyIndex = queueFamily,
+				.queueCount = 1,
+				.pQueuePriorities = &queuePriority,
+			};
+			queueCreateInfos.push_back(queueCreateInfo);
+		}
 
 		VkDeviceCreateInfo createInfo{
 			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-			.queueCreateInfoCount = 1,
-			.pQueueCreateInfos = &queueCreateInfo,
+			.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
+			.pQueueCreateInfos = queueCreateInfos.data(),
 			.enabledLayerCount = 0,
 			.enabledExtensionCount = 0,
 		};
@@ -313,15 +327,27 @@ class TouhouEngine {
 			ERROR("Failed to create logical device!");
 		}
 
-		LOG("Obtaining graphics queue");
+		LOG("Obtaining graphicsFamily queue");
 		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
 
+		LOG("Obtaining presentFamily queue");
+		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+
 		LOG("Logical device created");
+	}
+
+	void createWindowSurface() {
+		LOG("Creating window surface");
+		if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+			ERROR("Failed to create window surface!");
+		}
+		LOG("Window surface created");
 	}
 
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
+		createWindowSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
 	}
@@ -337,9 +363,14 @@ class TouhouEngine {
 	}
 
 	void cleanup() {
+		LOG("Destroying window surface");
+		vkDestroySurfaceKHR(instance, surface, nullptr);
+
+		LOG("Destroying logical device");
 		vkDestroyDevice(device, nullptr);
 
 		if (enableValidationLayers) {
+			LOG("Destroying debug messenger");
 			vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}
 

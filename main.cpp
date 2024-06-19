@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
+#include <optional>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -16,6 +17,12 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+
+struct QueueFamilyIndices {
+	std::optional<uint32_t> graphicsFamily;
+
+	bool isComplete() { return graphicsFamily.has_value(); }
+};
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 													VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -61,8 +68,10 @@ class TouhouEngine {
 	GLFWwindow *window;
 	VkInstance instance;
 
-	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkQueue graphicsQueue;
+	VkDevice device;
 
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT debugMessenger;
 
 	void run() {
@@ -219,7 +228,33 @@ class TouhouEngine {
 			ERROR("Failed to find a suitable GPU!");
 		}
 
+		if (!isDeviceSuitable(physicalDevice)) {
+			ERROR("GPU is not suitable");
+		}
+
 		LOG("GPU successfully selected");
+	}
+
+	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+		list<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+		QueueFamilyIndices indices;
+		for (uint32_t i = 0; i < queueFamilyCount; ++i) {
+			if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				indices.graphicsFamily = i;
+				if (indices.isComplete()) break;
+			}
+		}
+		return indices;
+	}
+
+	bool isDeviceSuitable(VkPhysicalDevice device) {
+		QueueFamilyIndices indices = findQueueFamilies(device);
+		return indices.isComplete();
 	}
 
 	int getDeviceScore(VkPhysicalDevice device) {
@@ -249,10 +284,46 @@ class TouhouEngine {
 		return score;
 	}
 
+	void createLogicalDevice() {
+		LOG("Creating logical device");
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+
+		float queuePriority = 1.0f;
+		VkDeviceQueueCreateInfo queueCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+			.queueFamilyIndex = indices.graphicsFamily.value(),
+			.queueCount = 1,
+			.pQueuePriorities = &queuePriority,
+		};
+
+		VkDeviceCreateInfo createInfo{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+			.queueCreateInfoCount = 1,
+			.pQueueCreateInfos = &queueCreateInfo,
+			.enabledLayerCount = 0,
+			.enabledExtensionCount = 0,
+		};
+
+		if (enableValidationLayers) {
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
+
+		if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+			ERROR("Failed to create logical device!");
+		}
+
+		LOG("Obtaining graphics queue");
+		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+
+		LOG("Logical device created");
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
 		pickPhysicalDevice();
+		createLogicalDevice();
 	}
 
 	void mainLoop() {
@@ -264,7 +335,10 @@ class TouhouEngine {
 			}
 		}
 	}
+
 	void cleanup() {
+		vkDestroyDevice(device, nullptr);
+
 		if (enableValidationLayers) {
 			vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}

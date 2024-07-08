@@ -11,7 +11,7 @@
 #include "utils.h"
 
 const int WIDTH = 800;
-const int HEIGHT = 800;
+const int HEIGHT = 600;
 
 const list<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 #ifdef NDEBUG
@@ -26,6 +26,12 @@ struct QueueFamilyIndices {
 	std::optional<uint32_t> graphicsFamily, presentFamily;
 
 	bool isComplete() { return graphicsFamily.has_value() && presentFamily.has_value(); }
+};
+
+struct SwapChainSupportDetails {
+	VkSurfaceCapabilitiesKHR capabilities;
+	list<VkSurfaceFormatKHR> formats;
+	list<VkPresentModeKHR> presentModes;
 };
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -73,6 +79,13 @@ class TouhouEngine {
 	VkInstance instance;
 
 	VkSurfaceKHR surface;
+	VkSwapchainKHR swapChain;
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
+
+	list<VkImage> swapChainImages;
+	list<VkImageView> swapChainImageViews;
+
 	VkQueue graphicsQueue, presentQueue;
 	VkDevice device;
 
@@ -265,7 +278,13 @@ class TouhouEngine {
 
 	bool isDeviceSuitable(VkPhysicalDevice device) {
 		QueueFamilyIndices indices = findQueueFamilies(device);
-		return indices.isComplete() && checkDeviceExtensionSupport(device);
+		bool extensionsSupported = checkDeviceExtensionSupport(device);
+		bool swapChainAdequate = false;
+		if (extensionsSupported) {
+			SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+			swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+		}
+		return swapChainAdequate && indices.isComplete();
 	}
 
 	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
@@ -364,12 +383,169 @@ class TouhouEngine {
 		LOG("Window surface created");
 	}
 
+	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+		SwapChainSupportDetails details;
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+
+		uint32_t formatCount;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+
+		if (formatCount != 0) {
+			details.formats.resize(formatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+		}
+
+		uint32_t presentModeCount;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+
+		if (presentModeCount != 0) {
+			details.presentModes.resize(presentModeCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+		}
+
+		return details;
+	}
+
+	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const list<VkSurfaceFormatKHR> &availableFormats) {
+		for (const auto &availableFormat : availableFormats) {
+			if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
+				availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+				return availableFormat;
+			}
+		}
+		return availableFormats[0];
+	}
+
+	VkPresentModeKHR chooseSwapPresentMode(const list<VkPresentModeKHR> &availablePresentModes) {
+		for (const auto &availablePresentMode : availablePresentModes) {
+			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+				return availablePresentMode;
+			}
+		}
+		return VK_PRESENT_MODE_FIFO_KHR;
+	}
+
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) {
+		if (capabilities.currentExtent.width != UINT32_MAX) {
+			return capabilities.currentExtent;
+		}
+
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
+
+		VkExtent2D actualExtent = {
+			static_cast<uint32_t>(width),
+			static_cast<uint32_t>(height),
+		};
+
+		actualExtent.width =
+			std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+		actualExtent.height =
+			std::clamp(actualExtent.height, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+
+		return actualExtent;
+	}
+
+	void createSwapChain() {
+		LOG("Querying swap chain support details for creation");
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+
+		LOG("Choosing swap chain details");
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+
+		VkSwapchainCreateInfoKHR createInfo{
+			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+			.surface = surface,
+			.minImageCount = swapChainSupport.capabilities.minImageCount + 1,
+			.imageFormat = surfaceFormat.format,
+			.imageColorSpace = surfaceFormat.colorSpace,
+			.imageExtent = extent,
+			.imageArrayLayers = 1,
+			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+
+			.preTransform = swapChainSupport.capabilities.currentTransform,
+			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+
+			.presentMode = presentMode,
+			.clipped = VK_TRUE,
+
+			.oldSwapchain = VK_NULL_HANDLE,
+		};
+
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+
+		if (indices.graphicsFamily != indices.presentFamily) {
+			uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		} else {
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		}
+
+		LOG("Creating swap chain");
+		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+			ERROR("Failed to create swap chain!");
+		}
+
+		LOG("Swap chain created");
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
+
+		LOG("Obtaining swap chain images");
+		uint32_t imageCount;
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+
+		swapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+
+		LOG("Swap chain images obtained");
+	}
+
+	void createImageViews() {
+		swapChainImageViews.resize(swapChainImages.size());
+
+		for (size_t i = 0; i < swapChainImages.size(); ++i) {
+			VkImageViewCreateInfo createInfo{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = swapChainImages[i],
+
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = swapChainImageFormat,
+
+				.components =
+					{
+						.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+						.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+						.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+						.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+					},
+				.subresourceRange =
+					{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					},
+			};
+
+			if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+				ERROR("Failed to create image views!");
+			}
+		}
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
 		createWindowSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		createSwapChain();
+		createImageViews();
 	}
 
 	void mainLoop() {
@@ -383,6 +559,14 @@ class TouhouEngine {
 	}
 
 	void cleanup() {
+		LOG("Destroying image views");
+		for (auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		LOG("Destroying swap chain");
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+
 		LOG("Destroying window surface");
 		vkDestroySurfaceKHR(instance, surface, nullptr);
 

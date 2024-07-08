@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <optional>
 #include <set>
@@ -33,6 +34,23 @@ struct SwapChainSupportDetails {
 	list<VkSurfaceFormatKHR> formats;
 	list<VkPresentModeKHR> presentModes;
 };
+
+static list<char> readFile(const std::string &filename) {
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		ERROR("Failed to open file: " + filename);
+	}
+
+	size_t fileSize = static_cast<size_t>(file.tellg());
+	list<char> buffer(fileSize);
+
+	file.seekg(0);
+	file.read(buffer.data(), fileSize);
+	file.close();
+
+	return buffer;
+}
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 													VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -77,6 +95,9 @@ class TouhouEngine {
   public:
 	GLFWwindow *window;
 	VkInstance instance;
+	VkPipeline graphicsPipeline;
+
+	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 
 	VkSurfaceKHR surface;
@@ -539,10 +560,31 @@ class TouhouEngine {
 		}
 	}
 
+	VkShaderModule createShaderModule(const list<char> &code) {
+		LOG("Creating shader module");
+
+		VkShaderModuleCreateInfo createInfo{
+			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+			.codeSize = code.size(),
+			.pCode = reinterpret_cast<const uint32_t *>(code.data()),
+		};
+
+		VkShaderModule shaderModule;
+		if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+			ERROR("Failed to create shader module!");
+		}
+
+		return shaderModule;
+	}
+
 	void createGraphicsPipeline() {
 		LOG("Initializing graphics pipeline creation");
 
-		// TODO: Add shader and vertex modules here
+		auto vertShaderCode = readFile("shaders/vert.spv");
+		auto fragShaderCode = readFile("shaders/frag.spv");
+
+		VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+		VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
 		list<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_LINE_WIDTH};
 
@@ -622,7 +664,80 @@ class TouhouEngine {
 			ERROR("Failed to create pipeline layout!");
 		}
 
-		LOG("Pipeline layout created");
+		VkGraphicsPipelineCreateInfo pipelineInfo{
+			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+
+			.stageCount = 2,
+			.pStages = nullptr,
+
+			.pVertexInputState = &vertexInputInfo,
+			.pInputAssemblyState = &inputAssembly,
+			.pViewportState = &viewportState,
+			.pRasterizationState = &rasterizer,
+			.pMultisampleState = &multisampling,
+			.pColorBlendState = &colorBlending,
+			.pDynamicState = &dynamicStateCreateInfo,
+
+			.layout = pipelineLayout,
+			.renderPass = renderPass,
+			.subpass = 0,
+		};
+
+		LOG("Creating graphics pipeline");
+		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) !=
+			VK_SUCCESS) {
+			ERROR("Failed to create graphics pipeline!");
+		}
+
+		LOG("Graphics pipeline created, now liberating resources");
+		vkDestroyShaderModule(device, fragShaderModule, nullptr);
+		vkDestroyShaderModule(device, vertShaderModule, nullptr);
+
+		LOG("Shader modules destroyed");
+	}
+
+	void createRenderPass() {
+		LOG("Initializing render pass creation");
+
+		VkAttachmentDescription colorAttachment{
+			.format = swapChainImageFormat,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		};
+
+		VkAttachmentReference colorAttachmentRef{
+			.attachment = 0,
+			.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		};
+
+		VkSubpassDescription subpass{
+			.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &colorAttachmentRef,
+		};
+
+		VkRenderPassCreateInfo renderPassInfo{
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+			.attachmentCount = 1,
+			.pAttachments = &colorAttachment,
+			.subpassCount = 1,
+			.pSubpasses = &subpass,
+		};
+
+		LOG("Creating render pass");
+		if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+			ERROR("Failed to create render pass!");
+		}
+
+		LOG("Render pass created");
 	}
 
 	void initVulkan() {
@@ -633,6 +748,7 @@ class TouhouEngine {
 		createLogicalDevice();
 		createSwapChain();
 		createImageViews();
+		createRenderPass();
 		createGraphicsPipeline();
 	}
 
@@ -647,8 +763,14 @@ class TouhouEngine {
 	}
 
 	void cleanup() {
+		LOG("Destroying graphics pipeline");
+		vkDestroyPipeline(device, graphicsPipeline, nullptr);
+
 		LOG("Destroying graphics pipeline layout");
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
+		LOG("Destroying render pass");
+		vkDestroyRenderPass(device, renderPass, nullptr);
 
 		LOG("Destroying image views");
 		for (auto imageView : swapChainImageViews) {

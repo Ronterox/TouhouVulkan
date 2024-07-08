@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <map>
 #include <optional>
@@ -18,6 +19,8 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+
+const list<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 struct QueueFamilyIndices {
 	std::optional<uint32_t> graphicsFamily, presentFamily;
@@ -93,7 +96,7 @@ class TouhouEngine {
 
 		for (const char *layerName : validationLayers) {
 			if (std::none_of(availableLayers.begin(), availableLayers.end(),
-							 [&](const auto &layer) { return strcmp(layer.layerName, layerName) == 0; })) {
+							 [&](const auto &layer) { return IS_STR_EQUAL(layer.layerName, layerName); })) {
 				LOGE("Missing validation layer: " << layerName);
 				return false;
 			}
@@ -146,7 +149,7 @@ class TouhouEngine {
 
 		for (uint i = 0; i < glfwRequiredEXT.size(); ++i) {
 			if (std::none_of(extensions.begin(), extensions.end(),
-							 [&](const auto &ext) { return strcmp(ext.extensionName, glfwRequiredEXT[i]) == 0; })) {
+							 [&](const auto &ext) { return IS_STR_EQUAL(ext.extensionName, glfwRequiredEXT[i]); })) {
 				ERROR("Missing required extension" + std::string(glfwRequiredEXT[i]));
 			}
 		}
@@ -207,7 +210,7 @@ class TouhouEngine {
 	}
 
 	void pickPhysicalDevice() {
-		uint32_t physicalDeviceCount = 5;
+		uint32_t physicalDeviceCount = 0;
 		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
 
 		list<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
@@ -234,7 +237,7 @@ class TouhouEngine {
 			ERROR("GPU is not suitable");
 		}
 
-		LOG("GPU successfully selected");
+		LOG("GPU successfully selected with a score of " << candidates.rbegin()->first);
 	}
 
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
@@ -262,7 +265,23 @@ class TouhouEngine {
 
 	bool isDeviceSuitable(VkPhysicalDevice device) {
 		QueueFamilyIndices indices = findQueueFamilies(device);
-		return indices.isComplete();
+		return indices.isComplete() && checkDeviceExtensionSupport(device);
+	}
+
+	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+		uint32_t extensionCount;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+
+		list<VkExtensionProperties> availableExtensions(extensionCount);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+		for (const auto &ext : deviceExtensions) {
+			if (std::none_of(availableExtensions.begin(), availableExtensions.end(),
+							 [&](const auto &extension) { return IS_STR_EQUAL(extension.extensionName, ext); })) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	int getDeviceScore(VkPhysicalDevice device) {
@@ -280,7 +299,7 @@ class TouhouEngine {
 		if (!deviceFeatures.geometryShader) return 0;
 
 		int score = 0;
-		LOG("Checking for discrete GPU for " << deviceName);
+		LOG("Checking for GPU type for " << deviceName);
 		if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 			score += 1000;
 		}
@@ -315,7 +334,8 @@ class TouhouEngine {
 			.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
 			.pQueueCreateInfos = queueCreateInfos.data(),
 			.enabledLayerCount = 0,
-			.enabledExtensionCount = 0,
+			.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
+			.ppEnabledExtensionNames = deviceExtensions.data(),
 		};
 
 		if (enableValidationLayers) {

@@ -15,3 +15,5 @@
 
 #include <vector>
 template <typename T> using list = std::vector<T>;
+
+#define IS_STR_EQUAL(a, b) (strcmp(a, b) == 0)

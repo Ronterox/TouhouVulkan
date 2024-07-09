@@ -100,6 +100,9 @@ class TouhouEngine {
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 
+	VkCommandPool commandPool;
+	VkCommandBuffer commandBuffer;
+
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapChain;
 	VkFormat swapChainImageFormat;
@@ -796,6 +799,96 @@ class TouhouEngine {
 		LOG("Framebuffers created");
 	}
 
+	void createCommandPool() {
+		LOG("Creating command pool");
+
+		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+		VkCommandPoolCreateInfo poolInfo{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+			.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(),
+		};
+
+		if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+			ERROR("Failed to create command pool!");
+		}
+
+		LOG("Command pool created");
+	}
+
+	void createCommandBuffer() {
+		LOG("Creating command buffer");
+
+		VkCommandBufferAllocateInfo allocInfo{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = commandPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1,
+		};
+
+		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+			ERROR("Failed to allocate command buffer!");
+		}
+
+		LOG("Command buffer created");
+	}
+
+	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+		VkCommandBufferBeginInfo beginInfo{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		};
+
+		LOG("Recording command buffer");
+		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+			ERROR("Failed to begin recording command buffer!");
+		}
+
+		VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+
+		VkRenderPassBeginInfo renderPassInfo{
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+			.renderPass = renderPass,
+			.framebuffer = swapChainFramebuffer[imageIndex],
+
+			.renderArea =
+				{
+					.offset = {0, 0},
+					.extent = swapChainExtent,
+				},
+			.clearValueCount = 1,
+			.pClearValues = &clearColor,
+		};
+
+		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+		VkViewport viewport{
+			.x = 0.0f,
+			.y = 0.0f,
+			.width = static_cast<float>(swapChainExtent.width),
+			.height = static_cast<float>(swapChainExtent.height),
+			.minDepth = 0.0f,
+			.maxDepth = 1.0f,
+		};
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		VkRect2D scissor{
+			.offset = {0, 0},
+			.extent = swapChainExtent,
+		};
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+		vkCmdEndRenderPass(commandBuffer);
+
+		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+			ERROR("Failed to record command buffer!");
+		}
+
+		LOG("Command buffer recorded");
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
@@ -807,6 +900,8 @@ class TouhouEngine {
 		createRenderPass();
 		createGraphicsPipeline();
 		createFramebuffers();
+		createCommandPool();
+		createCommandBuffer();
 	}
 
 	void mainLoop() {
@@ -820,6 +915,9 @@ class TouhouEngine {
 	}
 
 	void cleanup() {
+		LOG("Destroying command pool");
+		vkDestroyCommandPool(device, commandPool, nullptr);
+
 		LOG("Destroying framebuffers");
 		for (auto framebuffer : swapChainFramebuffer) {
 			vkDestroyFramebuffer(device, framebuffer, nullptr);

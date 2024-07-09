@@ -9,8 +9,8 @@ SPV = $(SHADERS_VERT:.vert=_vert.spv) $(SHADERS_FRAG:.frag=_frag.spv)
 CPP_FILES = $(wildcard *.cpp)
 OUT_FILES = $(CPP_FILES:.cpp=.out)
 
-# .SILENT:
 all: $(SPV) main.run clean
+run: main.run
 
 %_vert.spv: %.vert
 	./shaderc/bin/glslc $^ -o $@

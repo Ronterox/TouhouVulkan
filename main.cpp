@@ -107,6 +107,7 @@ class TouhouEngine {
 
 	list<VkImage> swapChainImages;
 	list<VkImageView> swapChainImageViews;
+	list<VkFramebuffer> swapChainFramebuffer;
 
 	VkQueue graphicsQueue, presentQueue;
 	VkDevice device;
@@ -771,6 +772,30 @@ class TouhouEngine {
 		LOG("Render pass created");
 	}
 
+	void createFramebuffers() {
+		LOG("Creating framebuffers");
+		swapChainFramebuffer.resize(swapChainImages.size());
+
+		for (size_t i = 0; i < swapChainImages.size(); ++i) {
+			VkImageView attachments[] = {swapChainImageViews[i]};
+
+			VkFramebufferCreateInfo framebufferCreateInfo{
+				.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+				.renderPass = renderPass,
+				.attachmentCount = 1,
+				.pAttachments = attachments,
+				.width = swapChainExtent.width,
+				.height = swapChainExtent.height,
+				.layers = 1,
+			};
+
+			if (vkCreateFramebuffer(device, &framebufferCreateInfo, nullptr, &swapChainFramebuffer[i]) != VK_SUCCESS) {
+				ERROR("Failed to create framebuffer!");
+			}
+		}
+		LOG("Framebuffers created");
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
@@ -781,6 +806,7 @@ class TouhouEngine {
 		createImageViews();
 		createRenderPass();
 		createGraphicsPipeline();
+		createFramebuffers();
 	}
 
 	void mainLoop() {
@@ -794,6 +820,11 @@ class TouhouEngine {
 	}
 
 	void cleanup() {
+		LOG("Destroying framebuffers");
+		for (auto framebuffer : swapChainFramebuffer) {
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+
 		LOG("Destroying graphics pipeline");
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 

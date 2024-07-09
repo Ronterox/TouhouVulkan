@@ -13,4 +13,4 @@ fi
 echo "Extracting $filename..."
 tar -xzvf $filename && rm $filename
 
-mv "${filename%.*}" shaderc && make
+mv "${filename%.*}" shaderc

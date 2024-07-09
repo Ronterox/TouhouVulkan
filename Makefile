@@ -2,19 +2,21 @@
 CFLAGS = -std=c++17
 LDFLAGS = -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
 
-SHADERS = $(wildcard */*.vert) $(wildcard */*.frag)
-SPV = $(SHADERS:.vert=_vert.spv) $(SHADERS:.frag=_frag.spv)
+SHADERS_VERT = $(wildcard */*.vert)
+SHADERS_FRAG = $(wildcard */*.frag)
+SPV = $(SHADERS_VERT:.vert=_vert.spv) $(SHADERS_FRAG:.frag=_frag.spv)
 
-OUT_FILES = $(*.cpp:.cpp=.out)
+CPP_FILES = $(wildcard *.cpp)
+OUT_FILES = $(CPP_FILES:.cpp=.out)
 
 # .SILENT:
-all: main.run clean
+all: $(SPV) main.run clean
 
 %_vert.spv: %.vert
-	./shaderc/bin/glslc $^ -o $(notdir $@)
+	./shaderc/bin/glslc $^ -o $@
 
 %_frag.spv: %.frag
-	./shaderc/bin/glslc $^ -o $(notdir $@)
+	./shaderc/bin/glslc $^ -o $@
 
 %.out: %.cpp
 	g++ $(CFLAGS) $^ -o $@ $(LDFLAGS)

@@ -105,6 +105,7 @@ class TouhouEngine {
 
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapChain;
+
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
 
@@ -117,6 +118,10 @@ class TouhouEngine {
 
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT debugMessenger;
+
+	VkSemaphore imageAvailableSemaphore;
+	VkSemaphore renderFinishedSemaphore;
+	VkFence waitFrameFence;
 
 	void run() {
 		initWindow();
@@ -605,7 +610,7 @@ class TouhouEngine {
 		};
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-		list<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_LINE_WIDTH};
+		list<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
 
 		VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -759,6 +764,17 @@ class TouhouEngine {
 			.pColorAttachments = &colorAttachmentRef,
 		};
 
+		VkSubpassDependency dependency{
+			.srcSubpass = VK_SUBPASS_EXTERNAL,
+			.dstSubpass = 0,
+
+			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+
+			.srcAccessMask = 0,
+			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		};
+
 		VkRenderPassCreateInfo renderPassInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 			.attachmentCount = 1,
@@ -839,7 +855,6 @@ class TouhouEngine {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		};
 
-		LOG("Recording command buffer");
 		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
 			ERROR("Failed to begin recording command buffer!");
 		}
@@ -847,10 +862,9 @@ class TouhouEngine {
 		VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
 		VkRenderPassBeginInfo renderPassInfo{
-			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			.renderPass = renderPass,
 			.framebuffer = swapChainFramebuffer[imageIndex],
-
 			.renderArea =
 				{
 					.offset = {0, 0},
@@ -885,36 +899,102 @@ class TouhouEngine {
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
 			ERROR("Failed to record command buffer!");
 		}
+	}
 
-		LOG("Command buffer recorded");
+	void createSyncObjects() {
+		LOG("Creating synchronization objects");
+
+		VkSemaphoreCreateInfo semaphoreInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+		VkFenceCreateInfo fenceInfo{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+									.flags = VK_FENCE_CREATE_SIGNALED_BIT};
+
+		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
+			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
+			vkCreateFence(device, &fenceInfo, nullptr, &waitFrameFence) != VK_SUCCESS) {
+			ERROR("Failed to create synchronization objects for a frame!");
+		}
+
+		LOG("Synchronization objects created");
 	}
 
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
 		createWindowSurface();
+
 		pickPhysicalDevice();
 		createLogicalDevice();
+
 		createSwapChain();
 		createImageViews();
 		createRenderPass();
+
 		createGraphicsPipeline();
 		createFramebuffers();
+
 		createCommandPool();
 		createCommandBuffer();
+
+		createSyncObjects();
+	}
+
+	void drawNextFrame() {
+		vkWaitForFences(device, 1, &waitFrameFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(device, 1, &waitFrameFence);
+
+		uint32_t imageIndex;
+		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+		vkResetCommandBuffer(commandBuffer, 0);
+		recordCommandBuffer(commandBuffer, imageIndex);
+
+		VkPipelineStageFlags waitStagesMask[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+
+		VkSubmitInfo submitInfo{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &imageAvailableSemaphore,
+			.pWaitDstStageMask = waitStagesMask,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &commandBuffer,
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &renderFinishedSemaphore,
+		};
+
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, waitFrameFence) != VK_SUCCESS) {
+			ERROR("Failed to submit draw command buffer!");
+		}
+
+		VkPresentInfoKHR presentInfo{
+			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &renderFinishedSemaphore,
+			.swapchainCount = 1,
+			.pSwapchains = &swapChain,
+			.pImageIndices = &imageIndex,
+		};
+
+		vkQueuePresentKHR(presentQueue, &presentInfo);
 	}
 
 	void mainLoop() {
 		LOG("Running main loop");
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
+			drawNextFrame();
 			if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 				glfwSetWindowShouldClose(window, GLFW_TRUE);
 			}
 		}
+		vkDeviceWaitIdle(device);
 	}
 
 	void cleanup() {
+		LOG("Destroying synchronization objects");
+		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+		vkDestroyFence(device, waitFrameFence, nullptr);
+
 		LOG("Destroying command pool");
 		vkDestroyCommandPool(device, commandPool, nullptr);
 

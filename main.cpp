@@ -14,6 +14,8 @@
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 const list<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -101,7 +103,7 @@ class TouhouEngine {
 	VkPipelineLayout pipelineLayout;
 
 	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	list<VkCommandBuffer> commandBuffers;
 
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapChain;
@@ -119,9 +121,11 @@ class TouhouEngine {
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT debugMessenger;
 
-	VkSemaphore imageAvailableSemaphore;
-	VkSemaphore renderFinishedSemaphore;
-	VkFence waitFrameFence;
+	list<VkSemaphore> imageAvailableSemaphores;
+	list<VkSemaphore> renderFinishedSemaphores;
+	list<VkFence> waitFrameFences;
+
+	uint32_t currentFrame = 0;
 
 	void run() {
 		initWindow();
@@ -817,17 +821,18 @@ class TouhouEngine {
 		LOG("Command pool created");
 	}
 
-	void createCommandBuffer() {
+	void createCommandBuffers() {
 		LOG("Creating command buffer");
+		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
 		VkCommandBufferAllocateInfo allocInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 			.commandPool = commandPool,
 			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandBufferCount = 1,
+			.commandBufferCount = MAX_FRAMES_IN_FLIGHT,
 		};
 
-		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
 			ERROR("Failed to allocate command buffer!");
 		}
 
@@ -887,15 +892,20 @@ class TouhouEngine {
 
 	void createSyncObjects() {
 		LOG("Creating synchronization objects");
+		imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		waitFrameFences.resize(MAX_FRAMES_IN_FLIGHT);
 
 		VkSemaphoreCreateInfo semaphoreInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 		VkFenceCreateInfo fenceInfo{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 									.flags = VK_FENCE_CREATE_SIGNALED_BIT};
 
-		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
-			vkCreateFence(device, &fenceInfo, nullptr, &waitFrameFence) != VK_SUCCESS) {
-			ERROR("Failed to create synchronization objects for a frame!");
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+				vkCreateFence(device, &fenceInfo, nullptr, &waitFrameFences[i]) != VK_SUCCESS) {
+				ERROR("Failed to create synchronization objects for a frame!");
+			}
 		}
 
 		LOG("Synchronization objects created");
@@ -917,48 +927,51 @@ class TouhouEngine {
 		createFramebuffers();
 
 		createCommandPool();
-		createCommandBuffer();
+		createCommandBuffers();
 
 		createSyncObjects();
 	}
 
 	void drawNextFrame() {
-		vkWaitForFences(device, 1, &waitFrameFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &waitFrameFence);
+		vkWaitForFences(device, 1, &waitFrameFences[currentFrame], VK_TRUE, UINT64_MAX);
+		vkResetFences(device, 1, &waitFrameFences[currentFrame]);
 
 		uint32_t imageIndex;
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE,
+							  &imageIndex);
 
-		vkResetCommandBuffer(commandBuffer, 0);
-		recordCommandBuffer(commandBuffer, imageIndex);
+		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
 		VkPipelineStageFlags waitStagesMask[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
 		VkSubmitInfo submitInfo{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &imageAvailableSemaphore,
+			.pWaitSemaphores = &imageAvailableSemaphores[currentFrame],
 			.pWaitDstStageMask = waitStagesMask,
 			.commandBufferCount = 1,
-			.pCommandBuffers = &commandBuffer,
+			.pCommandBuffers = &commandBuffers[currentFrame],
 			.signalSemaphoreCount = 1,
-			.pSignalSemaphores = &renderFinishedSemaphore,
+			.pSignalSemaphores = &renderFinishedSemaphores[currentFrame],
 		};
 
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, waitFrameFence) != VK_SUCCESS) {
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, waitFrameFences[currentFrame]) != VK_SUCCESS) {
 			ERROR("Failed to submit draw command buffer!");
 		}
 
 		VkPresentInfoKHR presentInfo{
 			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &renderFinishedSemaphore,
+			.pWaitSemaphores = &renderFinishedSemaphores[currentFrame],
 			.swapchainCount = 1,
 			.pSwapchains = &swapChain,
 			.pImageIndices = &imageIndex,
 		};
 
 		vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		++currentFrame %= MAX_FRAMES_IN_FLIGHT;
 	}
 
 	void mainLoop() {
@@ -975,9 +988,11 @@ class TouhouEngine {
 
 	void cleanup() {
 		LOG("Destroying synchronization objects");
-		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
-		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-		vkDestroyFence(device, waitFrameFence, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroyFence(device, waitFrameFences[i], nullptr);
+		}
 
 		LOG("Destroying command pool");
 		vkDestroyCommandPool(device, commandPool, nullptr);

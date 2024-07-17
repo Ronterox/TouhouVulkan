@@ -186,6 +186,8 @@ class TouhouEngine {
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		LOG("Creating window GLFW");
+		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+		// glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Touhou Engine", nullptr, nullptr);
 	}
 
@@ -937,8 +939,15 @@ class TouhouEngine {
 		vkResetFences(device, 1, &waitFrameFences[currentFrame]);
 
 		uint32_t imageIndex;
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE,
-							  &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame],
+												VK_NULL_HANDLE, &imageIndex);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+			recreateSwapChain();
+			return;
+		} else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+			ERROR("Failed to acquire next image for frame!");
+		}
 
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -969,9 +978,26 @@ class TouhouEngine {
 			.pImageIndices = &imageIndex,
 		};
 
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+			recreateSwapChain();
+			return;
+		} else if (result != VK_SUCCESS) {
+			ERROR("Failed to present swap chain image!");
+		}
 
 		++currentFrame %= MAX_FRAMES_IN_FLIGHT;
+	}
+
+	void recreateSwapChain() {
+		vkDeviceWaitIdle(device);
+
+		cleanupSwapchain();
+
+		createSwapChain();
+		createImageViews();
+		createFramebuffers();
 	}
 
 	void mainLoop() {
@@ -986,6 +1012,21 @@ class TouhouEngine {
 		vkDeviceWaitIdle(device);
 	}
 
+	void cleanupSwapchain() {
+		LOG("Destroying image views");
+		for (auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		LOG("Destroying framebuffers");
+		for (auto framebuffer : swapChainFramebuffer) {
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+
+		LOG("Destroying swap chain");
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
+
 	void cleanup() {
 		LOG("Destroying synchronization objects");
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -994,13 +1035,10 @@ class TouhouEngine {
 			vkDestroyFence(device, waitFrameFences[i], nullptr);
 		}
 
+		cleanupSwapchain();
+
 		LOG("Destroying command pool");
 		vkDestroyCommandPool(device, commandPool, nullptr);
-
-		LOG("Destroying framebuffers");
-		for (auto framebuffer : swapChainFramebuffer) {
-			vkDestroyFramebuffer(device, framebuffer, nullptr);
-		}
 
 		LOG("Destroying graphics pipeline");
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
@@ -1010,14 +1048,6 @@ class TouhouEngine {
 
 		LOG("Destroying render pass");
 		vkDestroyRenderPass(device, renderPass, nullptr);
-
-		LOG("Destroying image views");
-		for (auto imageView : swapChainImageViews) {
-			vkDestroyImageView(device, imageView, nullptr);
-		}
-
-		LOG("Destroying swap chain");
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
 
 		LOG("Destroying window surface");
 		vkDestroySurfaceKHR(instance, surface, nullptr);

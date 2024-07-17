@@ -991,6 +991,13 @@ class TouhouEngine {
 	}
 
 	void recreateSwapChain() {
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		if (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
 		vkDeviceWaitIdle(device);
 
 		cleanupSwapchain();

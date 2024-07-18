@@ -126,6 +126,7 @@ class TouhouEngine {
 	list<VkFence> waitFrameFences;
 
 	uint32_t currentFrame = 0;
+	bool framebufferResized = false;
 
 	void run() {
 		initWindow();
@@ -187,8 +188,14 @@ class TouhouEngine {
 
 		LOG("Creating window GLFW");
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-		// glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Touhou Engine", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	}
+
+	static void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
+		auto app = reinterpret_cast<TouhouEngine *>(glfwGetWindowUserPointer(window));
+		app->framebufferResized = true;
 	}
 
 	void verifyVkExtensions(list<const char *> glfwRequiredEXT) {
@@ -936,7 +943,6 @@ class TouhouEngine {
 
 	void drawNextFrame() {
 		vkWaitForFences(device, 1, &waitFrameFences[currentFrame], VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &waitFrameFences[currentFrame]);
 
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame],
@@ -948,6 +954,8 @@ class TouhouEngine {
 		} else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
 			ERROR("Failed to acquire next image for frame!");
 		}
+
+		vkResetFences(device, 1, &waitFrameFences[currentFrame]);
 
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -980,7 +988,8 @@ class TouhouEngine {
 
 		result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
-		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+			framebufferResized = false;
 			recreateSwapChain();
 			return;
 		} else if (result != VK_SUCCESS) {
@@ -995,7 +1004,9 @@ class TouhouEngine {
 		glfwGetFramebufferSize(window, &width, &height);
 		if (width == 0 || height == 0) {
 			glfwGetFramebufferSize(window, &width, &height);
+			LOG("Paused!");
 			glfwWaitEvents();
+			LOG("Unpaused!");
 		}
 
 		vkDeviceWaitIdle(device);

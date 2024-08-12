@@ -1,6 +1,7 @@
-# CFLAGS = -std=c++17 -O2 -s -DNDEBUG
-CFLAGS = -std=c++17
+# CFLAGS = -std=c++20 -O2 -s -DNDEBUG
+CFLAGS = -std=c++20
 LDFLAGS = -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
+STRICTFLAGS = -Wall -Wpedantic -Werror
 
 SHADERS_VERT = $(wildcard */*.vert)
 SHADERS_FRAG = $(wildcard */*.frag)
@@ -19,7 +20,7 @@ run: main.run
 	./shaderc/bin/glslc $^ -o $@
 
 %.out: %.cpp
-	g++ $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	g++ $(CFLAGS) $^ -o $@ $(LDFLAGS) $(STRICTFLAGS)
 
 %.run: %.out $(SPV)
 	./$<

@@ -85,8 +85,8 @@ static list<char> readFile(const std::string &filename) {
 	return buffer;
 }
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-													VkDebugUtilsMessageTypeFlagsEXT messageType,
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+													const VkDebugUtilsMessageTypeFlagsEXT messageType,
 													const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
 													void *pUserData) {
 	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
@@ -107,7 +107,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 	return VK_FALSE;
 }
 
-VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
+VkResult vkCreateDebugUtilsMessengerEXT(const VkInstance instance,
+										const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
 										const VkAllocationCallbacks *pAllocator,
 										VkDebugUtilsMessengerEXT *pDebugMessenger) {
 	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -116,7 +117,7 @@ VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsM
 	return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
 }
 
-void vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
+void vkDestroyDebugUtilsMessengerEXT(const VkInstance instance, const VkDebugUtilsMessengerEXT debugMessenger,
 									 const VkAllocationCallbacks *pAllocator) {
 	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
 	if (func == nullptr) return;
@@ -160,6 +161,7 @@ class TouhouEngine {
 	bool framebufferResized = false;
 
 	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
 
 	void run() {
 		initWindow();
@@ -170,7 +172,9 @@ class TouhouEngine {
 
   private:
 	const std::vector<Vertex> vertices = {
-		{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}}, {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}}, {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+		{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
 
 	bool checkValidationLayerSupport() {
 		uint32_t layerCount;
@@ -230,7 +234,7 @@ class TouhouEngine {
 	}
 
 	static void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
-		auto app = reinterpret_cast<TouhouEngine *>(glfwGetWindowUserPointer(window));
+		const auto app = reinterpret_cast<TouhouEngine *>(glfwGetWindowUserPointer(window));
 		app->framebufferResized = true;
 	}
 
@@ -255,7 +259,7 @@ class TouhouEngine {
 			ERROR("Validation layers requested, but not available!");
 		}
 
-		VkApplicationInfo appInfo{
+		const VkApplicationInfo appInfo{
 			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 			.pApplicationName = "Touhou Engine",
 			.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
@@ -333,7 +337,7 @@ class TouhouEngine {
 		LOG("GPU successfully selected with a score of " << candidates.rbegin()->first);
 	}
 
-	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+	QueueFamilyIndices findQueueFamilies(const VkPhysicalDevice device) {
 		uint32_t queueFamilyCount = 0;
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
@@ -356,9 +360,9 @@ class TouhouEngine {
 		return indices;
 	}
 
-	bool isDeviceSuitable(VkPhysicalDevice device) {
+	bool isDeviceSuitable(const VkPhysicalDevice device) {
 		QueueFamilyIndices indices = findQueueFamilies(device);
-		bool extensionsSupported = checkDeviceExtensionSupport(device);
+		const bool extensionsSupported = checkDeviceExtensionSupport(device);
 		bool swapChainAdequate = false;
 		if (extensionsSupported) {
 			SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
@@ -367,7 +371,7 @@ class TouhouEngine {
 		return swapChainAdequate && indices.isComplete();
 	}
 
-	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+	bool checkDeviceExtensionSupport(const VkPhysicalDevice device) {
 		uint32_t extensionCount;
 		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
 
@@ -383,7 +387,7 @@ class TouhouEngine {
 		return true;
 	}
 
-	int getDeviceScore(VkPhysicalDevice device) {
+	int getDeviceScore(const VkPhysicalDevice device) {
 		LOG("Obtaining device properties");
 
 		VkPhysicalDeviceProperties deviceProperties;
@@ -412,13 +416,13 @@ class TouhouEngine {
 
 	void createLogicalDevice() {
 		LOG("Creating logical device");
-		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		const QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
 		list<VkDeviceQueueCreateInfo> queueCreateInfos;
-		std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+		const std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
 
-		float queuePriority = 1.0f;
-		for (uint32_t queueFamily : uniqueQueueFamilies) {
+		const float queuePriority = 1.0f;
+		for (const uint32_t queueFamily : uniqueQueueFamilies) {
 			VkDeviceQueueCreateInfo queueCreateInfo{
 				.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
 				.queueFamilyIndex = queueFamily,
@@ -463,7 +467,7 @@ class TouhouEngine {
 		LOG("Window surface created");
 	}
 
-	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+	SwapChainSupportDetails querySwapChainSupport(const VkPhysicalDevice device) {
 		SwapChainSupportDetails details;
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
 
@@ -528,12 +532,12 @@ class TouhouEngine {
 
 	void createSwapChain() {
 		LOG("Querying swap chain support details for creation");
-		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+		const SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
 
 		LOG("Choosing swap chain details");
-		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+		const VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		const VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		const VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
 		VkSwapchainCreateInfoKHR createInfo{
 			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -554,10 +558,10 @@ class TouhouEngine {
 			.oldSwapchain = VK_NULL_HANDLE,
 		};
 
-		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		const QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
 		if (indices.graphicsFamily != indices.presentFamily) {
-			uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+			const uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
 			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 			createInfo.queueFamilyIndexCount = 2;
 			createInfo.pQueueFamilyIndices = queueFamilyIndices;
@@ -588,7 +592,7 @@ class TouhouEngine {
 		swapChainImageViews.resize(swapChainImages.size());
 
 		for (size_t i = 0; i < swapChainImages.size(); ++i) {
-			VkImageViewCreateInfo createInfo{
+			const VkImageViewCreateInfo createInfo{
 				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 				.image = swapChainImages[i],
 
@@ -621,7 +625,7 @@ class TouhouEngine {
 	VkShaderModule createShaderModule(const list<char> &code) {
 		LOG("Creating shader module");
 
-		VkShaderModuleCreateInfo createInfo{
+		const VkShaderModuleCreateInfo createInfo{
 			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
 			.codeSize = code.size(),
 			.pCode = reinterpret_cast<const uint32_t *>(code.data()),
@@ -638,39 +642,39 @@ class TouhouEngine {
 	void createGraphicsPipeline() {
 		LOG("Initializing graphics pipeline creation");
 
-		auto vertShaderCode = readFile("shaders/shader_vert.spv");
-		auto fragShaderCode = readFile("shaders/shader_frag.spv");
+		const auto vertShaderCode = readFile("shaders/shader_vert.spv");
+		const auto fragShaderCode = readFile("shaders/shader_frag.spv");
 
-		VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
-		VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+		const VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+		const VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
-		VkPipelineShaderStageCreateInfo vertShaderStageInfo{
+		const VkPipelineShaderStageCreateInfo vertShaderStageInfo{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage = VK_SHADER_STAGE_VERTEX_BIT,
 			.module = vertShaderModule,
 			.pName = "main",
 		};
 
-		VkPipelineShaderStageCreateInfo fragShaderStageInfo{
+		const VkPipelineShaderStageCreateInfo fragShaderStageInfo{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
 			.module = fragShaderModule,
 			.pName = "main",
 		};
 
-		VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
-		list<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+		const VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+		const list<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
 
-		VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo{
+		const VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
 			.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
 			.pDynamicStates = dynamicStates.data(),
 		};
 
-		auto bindingDescriptions = Vertex::getBindingDescription();
-		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+		const auto bindingDescriptions = Vertex::getBindingDescription();
+		const auto attributeDescriptions = Vertex::getAttributeDescriptions();
 
-		VkPipelineVertexInputStateCreateInfo vertexInputInfo{
+		const VkPipelineVertexInputStateCreateInfo vertexInputInfo{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
 			.vertexBindingDescriptionCount = 1,
 			.pVertexBindingDescriptions = &bindingDescriptions,
@@ -678,19 +682,19 @@ class TouhouEngine {
 			.pVertexAttributeDescriptions = attributeDescriptions.data(),
 		};
 
-		VkPipelineInputAssemblyStateCreateInfo inputAssembly{
+		const VkPipelineInputAssemblyStateCreateInfo inputAssembly{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 			.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
 			.primitiveRestartEnable = VK_FALSE,
 		};
 
-		VkPipelineViewportStateCreateInfo viewportState{
+		const VkPipelineViewportStateCreateInfo viewportState{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
 			.viewportCount = 1,
 			.scissorCount = 1,
 		};
 
-		VkPipelineRasterizationStateCreateInfo rasterizer{
+		const VkPipelineRasterizationStateCreateInfo rasterizer{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 			.depthClampEnable = VK_FALSE,
 			.rasterizerDiscardEnable = VK_FALSE,
@@ -703,7 +707,7 @@ class TouhouEngine {
 			.lineWidth = 1.0f,
 		};
 
-		VkPipelineMultisampleStateCreateInfo multisampling{
+		const VkPipelineMultisampleStateCreateInfo multisampling{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 			.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
 			.sampleShadingEnable = VK_FALSE,
@@ -711,7 +715,7 @@ class TouhouEngine {
 
 		// finalColor.rgb = newColor.rgb * newColor.a + oldColor.rgb * (1 - newColor.a)
 		// finalColor.a = newColor.a * 1 + oldColor.a * 0
-		VkPipelineColorBlendAttachmentState colorBlendAttachment{
+		const VkPipelineColorBlendAttachmentState colorBlendAttachment{
 			.blendEnable = VK_TRUE,
 
 			.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
@@ -726,14 +730,14 @@ class TouhouEngine {
 							  VK_COLOR_COMPONENT_A_BIT,
 		};
 
-		VkPipelineColorBlendStateCreateInfo colorBlending{
+		const VkPipelineColorBlendStateCreateInfo colorBlending{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
 			.logicOpEnable = VK_FALSE,
 			.attachmentCount = 1,
 			.pAttachments = &colorBlendAttachment,
 		};
 
-		VkPipelineLayoutCreateInfo pipelineLayoutInfo{
+		const VkPipelineLayoutCreateInfo pipelineLayoutInfo{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		};
 
@@ -742,7 +746,7 @@ class TouhouEngine {
 			ERROR("Failed to create pipeline layout!");
 		}
 
-		VkGraphicsPipelineCreateInfo pipelineInfo{
+		const VkGraphicsPipelineCreateInfo pipelineInfo{
 			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
 
 			.stageCount = 2,
@@ -777,7 +781,7 @@ class TouhouEngine {
 	void createRenderPass() {
 		LOG("Initializing render pass creation");
 
-		VkAttachmentDescription colorAttachment{
+		const VkAttachmentDescription colorAttachment{
 			.format = swapChainImageFormat,
 			.samples = VK_SAMPLE_COUNT_1_BIT,
 
@@ -791,29 +795,18 @@ class TouhouEngine {
 			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		};
 
-		VkAttachmentReference colorAttachmentRef{
+		const VkAttachmentReference colorAttachmentRef{
 			.attachment = 0,
 			.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		};
 
-		VkSubpassDescription subpass{
+		const VkSubpassDescription subpass{
 			.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 			.colorAttachmentCount = 1,
 			.pColorAttachments = &colorAttachmentRef,
 		};
 
-		/* VkSubpassDependency dependency{
-			.srcSubpass = VK_SUBPASS_EXTERNAL,
-			.dstSubpass = 0,
-
-			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-
-			.srcAccessMask = 0,
-			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		}; */
-
-		VkRenderPassCreateInfo renderPassInfo{
+		const VkRenderPassCreateInfo renderPassInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 			.attachmentCount = 1,
 			.pAttachments = &colorAttachment,
@@ -834,9 +827,9 @@ class TouhouEngine {
 		swapChainFramebuffer.resize(swapChainImages.size());
 
 		for (size_t i = 0; i < swapChainImages.size(); ++i) {
-			VkImageView attachments[] = {swapChainImageViews[i]};
+			const VkImageView attachments[] = {swapChainImageViews[i]};
 
-			VkFramebufferCreateInfo framebufferCreateInfo{
+			const VkFramebufferCreateInfo framebufferCreateInfo{
 				.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 				.renderPass = renderPass,
 				.attachmentCount = 1,
@@ -856,9 +849,9 @@ class TouhouEngine {
 	void createCommandPool() {
 		LOG("Creating command pool");
 
-		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+		const QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
 
-		VkCommandPoolCreateInfo poolInfo{
+		const VkCommandPoolCreateInfo poolInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
 			.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(),
@@ -875,7 +868,7 @@ class TouhouEngine {
 		LOG("Creating command buffer");
 		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
-		VkCommandBufferAllocateInfo allocInfo{
+		const VkCommandBufferAllocateInfo allocInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 			.commandPool = commandPool,
 			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
@@ -889,8 +882,8 @@ class TouhouEngine {
 		LOG("Command buffer created");
 	}
 
-	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
-		VkCommandBufferBeginInfo beginInfo{
+	void recordCommandBuffer(const VkCommandBuffer commandBuffer, const uint32_t imageIndex) {
+		const VkCommandBufferBeginInfo beginInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		};
 
@@ -898,9 +891,9 @@ class TouhouEngine {
 			ERROR("Failed to begin recording command buffer!");
 		}
 
-		VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+		const VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
-		VkRenderPassBeginInfo renderPassInfo{
+		const VkRenderPassBeginInfo renderPassInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			.renderPass = renderPass,
 			.framebuffer = swapChainFramebuffer[imageIndex],
@@ -914,9 +907,13 @@ class TouhouEngine {
 		};
 
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-		VkViewport viewport{
+		const VkDeviceSize offsets[1] = {0};
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, offsets);
+
+		const VkViewport viewport{
 			.x = 0.0f,
 			.y = 0.0f,
 			.width = static_cast<float>(swapChainExtent.width),
@@ -926,13 +923,14 @@ class TouhouEngine {
 		};
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
-		VkRect2D scissor{
+		const VkRect2D scissor{
 			.offset = {0, 0},
 			.extent = swapChainExtent,
 		};
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
 		vkCmdEndRenderPass(commandBuffer);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -990,6 +988,29 @@ class TouhouEngine {
 
 		VkMemoryRequirements memRequirements;
 		vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = memRequirements.size,
+			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+																				  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+		};
+
+		LOG("Allocating vertex buffer memory");
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
+			ERROR("Failed to allocate vertex buffer memory!");
+		}
+
+		LOG("Binding vertex buffer memory");
+		vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+		LOG("Mapping vertex buffer memory");
+		void *data;
+		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+		memcpy(data, vertices.data(), static_cast<size_t>(bufferInfo.size));
+		vkUnmapMemory(device, vertexBufferMemory);
+
+		LOG("Vertex buffer memory mapped!");
 	}
 
 	void initVulkan() {
@@ -1131,6 +1152,9 @@ class TouhouEngine {
 
 		LOG("Destroying vertex buffer");
 		vkDestroyBuffer(device, vertexBuffer, nullptr);
+
+		LOG("Freeing vertex buffer memory");
+		vkFreeMemory(device, vertexBufferMemory, nullptr);
 
 		LOG("Destroying command pool");
 		vkDestroyCommandPool(device, commandPool, nullptr);

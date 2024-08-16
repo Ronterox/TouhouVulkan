@@ -160,8 +160,8 @@ class TouhouEngine {
 	uint32_t currentFrame = 0;
 	bool framebufferResized = false;
 
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexBufferMemory;
+	VkBuffer vertexBuffer, indexBuffer;
+	VkDeviceMemory vertexBufferMemory, indexBufferMemory;
 
 	void run() {
 		initWindow();
@@ -171,8 +171,11 @@ class TouhouEngine {
 	}
 
   private:
-	const std::vector<Vertex> vertices = {
-		{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}}, {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}}, {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+	const list<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+								   {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+								   {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+								   {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+	const list<uint16_t> indices = {0, 1, 2, 2, 3, 0};
 
 	bool checkValidationLayerSupport() {
 		uint32_t layerCount;
@@ -908,6 +911,7 @@ class TouhouEngine {
 
 		const VkDeviceSize offsets[1] = {0};
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
 		const VkViewport viewport{
 			.x = 0.0f,
@@ -917,15 +921,17 @@ class TouhouEngine {
 			.minDepth = 0.0f,
 			.maxDepth = 1.0f,
 		};
+
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
 		const VkRect2D scissor{
 			.offset = {0, 0},
 			.extent = swapChainExtent,
 		};
+
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
 
@@ -1039,9 +1045,9 @@ class TouhouEngine {
 		vkBindBufferMemory(device, buffer, bufferMemory, 0);
 	}
 
-	void createVertexBuffer() {
-		LOG("Creating all vertex buffer");
-		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+	void createAndAllocBuffer(const VkDeviceSize bufferSize, const VkBufferUsageFlags usage, const void *bufferData,
+							  VkBuffer &buffer, VkDeviceMemory &bufferMemory) {
+		LOG("Allocating and staging buffer");
 
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingBufferMemory;
@@ -1052,19 +1058,33 @@ class TouhouEngine {
 		LOG("Mapping vertex buffer");
 		void *data;
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, vertices.data(), (size_t)bufferSize);
+		memcpy(data, bufferData, (size_t)bufferSize);
 		vkUnmapMemory(device, stagingBufferMemory);
 
 		LOG("Creating main vertex buffer");
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-					 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buffer,
+					 bufferMemory);
 
 		LOG("Copying buffer");
-		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+		copyBuffer(stagingBuffer, buffer, bufferSize);
 
 		LOG("Destroying staging buffer");
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
+	}
+
+	void createVertexBuffer() {
+		LOG("Creating all vertex buffer");
+		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+		createAndAllocBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.data(), vertexBuffer,
+							 vertexBufferMemory);
+	}
+
+	void createIndexBuffer() {
+		LOG("Creating all vertex buffer");
+		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+		createAndAllocBuffer(bufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indices.data(), indexBuffer,
+							 indexBufferMemory);
 	}
 
 	void initVulkan() {
@@ -1083,7 +1103,10 @@ class TouhouEngine {
 		createFramebuffers();
 
 		createCommandPool();
+
 		createVertexBuffer();
+		createIndexBuffer();
+
 		createCommandBuffers();
 
 		createSyncObjects();
@@ -1206,9 +1229,11 @@ class TouhouEngine {
 
 		LOG("Destroying vertex buffer");
 		vkDestroyBuffer(device, vertexBuffer, nullptr);
-
-		LOG("Freeing vertex buffer memory");
 		vkFreeMemory(device, vertexBufferMemory, nullptr);
+
+		LOG("Destroying index buffer");
+		vkDestroyBuffer(device, indexBuffer, nullptr);
+		vkFreeMemory(device, indexBufferMemory, nullptr);
 
 		LOG("Destroying command pool");
 		vkDestroyCommandPool(device, commandPool, nullptr);

@@ -1,7 +1,7 @@
 # CFLAGS = -std=c++20 -O2 -s -DNDEBUG
 CFLAGS = -std=c++20
 LDFLAGS = -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
-STRICTFLAGS = -Wall -Wpedantic -Werror
+STRICTFLAGS = -Wall -Wextra -Wpedantic -Werror
 
 SHADERS_VERT = $(wildcard */*.vert)
 SHADERS_FRAG = $(wildcard */*.frag)

@@ -70,10 +70,7 @@ struct SwapChainSupportDetails {
 
 static list<char> readFile(const std::string &filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-	if (!file.is_open()) {
-		ERROR("Failed to open file: " + filename);
-	}
+	VALIDATE(file.is_open(), "Failed to open file: " + filename);
 
 	size_t fileSize = static_cast<size_t>(file.tellg());
 	list<char> buffer(fileSize);
@@ -218,9 +215,9 @@ class TouhouEngine {
 		populateDebugMessengerCreateInfo(createInfo);
 
 		LOG("Creating debug messenger");
-		if (vkCreateDebugUtilsMessengerEXT(instance, &createInfo, VK_NULL_HANDLE, &debugMessenger) != VK_SUCCESS) {
-			ERROR("Failed to set up debug messenger");
-		}
+		VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &createInfo, VK_NULL_HANDLE, &debugMessenger),
+				 "Failed to set up debug messenger");
+		LOG("Debug messenger created");
 	}
 
 	void initWindow() {
@@ -248,20 +245,21 @@ class TouhouEngine {
 		list<VkExtensionProperties> extensions(vkExtensionCount);
 		vkEnumerateInstanceExtensionProperties(VK_NULL_HANDLE, &vkExtensionCount, extensions.data());
 
+		const auto CONTAINS = [&extensions](const char *ext) {
+			return std::any_of(extensions.begin(), extensions.end(),
+							   [&](const auto &extension) { return IS_STR_EQUAL(extension.extensionName, ext); });
+		};
+
 		for (uint i = 0; i < glfwRequiredEXT.size(); ++i) {
-			if (std::none_of(extensions.begin(), extensions.end(),
-							 [&](const auto &ext) { return IS_STR_EQUAL(ext.extensionName, glfwRequiredEXT[i]); })) {
-				ERROR("Missing required extension" + std::string(glfwRequiredEXT[i]));
-			}
+			VALIDATE(CONTAINS(glfwRequiredEXT[i]), "Missing required extension" + std::string(glfwRequiredEXT[i]));
 		}
 	}
 
 	void createVkInstance() {
 		LOG("Create Vulkan instance");
 
-		if (enableValidationLayers && !checkValidationLayerSupport()) {
-			ERROR("Validation layers requested, but not available!");
-		}
+		VALIDATE(!enableValidationLayers || checkValidationLayerSupport(),
+				 "Validation layers requested, but not available!");
 
 		const VkApplicationInfo appInfo{
 			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -307,9 +305,7 @@ class TouhouEngine {
 		verifyVkExtensions(glfwExtensions);
 
 		LOG("Creating Vulkan instance");
-		if (vkCreateInstance(&createInfo, VK_NULL_HANDLE, &instance) != VK_SUCCESS) {
-			ERROR("Failed to create Vulkan instance");
-		}
+		VK_CHECK(vkCreateInstance(&createInfo, VK_NULL_HANDLE, &instance), "Failed to create Vulkan instance");
 
 		LOG("Vulkan instance created");
 	}
@@ -321,9 +317,7 @@ class TouhouEngine {
 		list<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
 		vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
 
-		if (physicalDeviceCount == 0) {
-			ERROR("Failed to find GPUs with Vulkan support!");
-		}
+		VALIDATE(physicalDeviceCount > 0, "No suitable GPU found!");
 
 		std::multimap<int, VkPhysicalDevice> candidates;
 		for (const auto &device : physicalDevices) {
@@ -332,16 +326,10 @@ class TouhouEngine {
 		}
 
 		LOG(candidates.size() << " GPUs found");
-		if (candidates.rbegin()->first > 0) {
-			physicalDevice = candidates.rbegin()->second;
-		} else {
-			ERROR("Failed to find a suitable GPU!");
-		}
+		VALIDATE(candidates.rbegin()->first > 0, "Failed to find a suitable GPU score!");
+		physicalDevice = candidates.rbegin()->second;
 
-		if (!isDeviceSuitable(physicalDevice)) {
-			ERROR("GPU is not suitable");
-		}
-
+		VALIDATE(isDeviceSuitable(physicalDevice), "GPU is not suitable");
 		LOG("GPU successfully selected with a score of " << candidates.rbegin()->first);
 	}
 
@@ -460,9 +448,8 @@ class TouhouEngine {
 			createInfo.ppEnabledLayerNames = validationLayers.data();
 		}
 
-		if (vkCreateDevice(physicalDevice, &createInfo, VK_NULL_HANDLE, &device) != VK_SUCCESS) {
-			ERROR("Failed to create logical device!");
-		}
+		VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, VK_NULL_HANDLE, &device),
+				 "Failed to create logical device!");
 
 		LOG("Obtaining graphicsFamily queue");
 		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
@@ -475,9 +462,8 @@ class TouhouEngine {
 
 	void createWindowSurface() {
 		LOG("Creating window surface");
-		if (glfwCreateWindowSurface(instance, window, VK_NULL_HANDLE, &surface) != VK_SUCCESS) {
-			ERROR("Failed to create window surface!");
-		}
+		VK_CHECK(glfwCreateWindowSurface(instance, window, VK_NULL_HANDLE, &surface),
+				 "Failed to create window surface!");
 		LOG("Window surface created");
 	}
 
@@ -592,9 +578,7 @@ class TouhouEngine {
 		}
 
 		LOG("Creating swap chain");
-		if (vkCreateSwapchainKHR(device, &createInfo, VK_NULL_HANDLE, &swapChain) != VK_SUCCESS) {
-			ERROR("Failed to create swap chain!");
-		}
+		VK_CHECK(vkCreateSwapchainKHR(device, &createInfo, VK_NULL_HANDLE, &swapChain), "Failed to create swap chain!");
 
 		LOG("Swap chain created");
 		swapChainImageFormat = surfaceFormat.format;
@@ -640,9 +624,9 @@ class TouhouEngine {
 					},
 			};
 
-			if (vkCreateImageView(device, &createInfo, VK_NULL_HANDLE, &swapChainImageViews[i]) != VK_SUCCESS) {
-				ERROR("Failed to create image views!");
-			}
+			VK_CHECK(vkCreateImageView(device, &createInfo, VK_NULL_HANDLE, &swapChainImageViews[i]),
+					 "Failed to create image views!");
+			LOG("Image view created");
 		}
 	}
 
@@ -658,9 +642,8 @@ class TouhouEngine {
 		};
 
 		VkShaderModule shaderModule;
-		if (vkCreateShaderModule(device, &createInfo, VK_NULL_HANDLE, &shaderModule) != VK_SUCCESS) {
-			ERROR("Failed to create shader module!");
-		}
+		VK_CHECK(vkCreateShaderModule(device, &createInfo, VK_NULL_HANDLE, &shaderModule),
+				 "Failed to create shader module!");
 
 		return shaderModule;
 	}
@@ -809,9 +792,8 @@ class TouhouEngine {
 		};
 
 		LOG("Creating graphics pipeline layout");
-		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &pipelineLayout) != VK_SUCCESS) {
-			ERROR("Failed to create pipeline layout!");
-		}
+		VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, VK_NULL_HANDLE, &pipelineLayout),
+				 "Failed to create pipeline layout!");
 
 		const VkGraphicsPipelineCreateInfo pipelineInfo{
 			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -840,10 +822,8 @@ class TouhouEngine {
 		};
 
 		LOG("Creating graphics pipeline");
-		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, VK_NULL_HANDLE, &graphicsPipeline) !=
-			VK_SUCCESS) {
-			ERROR("Failed to create graphics pipeline!");
-		}
+		VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, VK_NULL_HANDLE, &graphicsPipeline),
+				 "Failed to create graphics pipeline!");
 
 		LOG("Graphics pipeline created, now liberating resources");
 		vkDestroyShaderModule(device, fragShaderModule, VK_NULL_HANDLE);
@@ -902,9 +882,8 @@ class TouhouEngine {
 		};
 
 		LOG("Creating render pass");
-		if (vkCreateRenderPass(device, &renderPassInfo, VK_NULL_HANDLE, &renderPass) != VK_SUCCESS) {
-			ERROR("Failed to create render pass!");
-		}
+		VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, VK_NULL_HANDLE, &renderPass),
+				 "Failed to create render pass!");
 
 		LOG("Render pass created");
 	}
@@ -928,10 +907,8 @@ class TouhouEngine {
 				.layers = 1,
 			};
 
-			if (vkCreateFramebuffer(device, &framebufferCreateInfo, VK_NULL_HANDLE, &swapChainFramebuffer[i]) !=
-				VK_SUCCESS) {
-				ERROR("Failed to create framebuffer!");
-			}
+			VK_CHECK(vkCreateFramebuffer(device, &framebufferCreateInfo, VK_NULL_HANDLE, &swapChainFramebuffer[i]),
+					 "Failed to create framebuffer!");
 		}
 		LOG("Framebuffers created");
 	}
@@ -948,9 +925,8 @@ class TouhouEngine {
 			.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(),
 		};
 
-		if (vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &commandPool) != VK_SUCCESS) {
-			ERROR("Failed to create command pool!");
-		}
+		VK_CHECK(vkCreateCommandPool(device, &poolInfo, VK_NULL_HANDLE, &commandPool),
+				 "Failed to create command pool!");
 
 		LOG("Command pool created");
 	}
@@ -967,9 +943,8 @@ class TouhouEngine {
 			.commandBufferCount = MAX_FRAMES_IN_FLIGHT,
 		};
 
-		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
-			ERROR("Failed to allocate command buffer!");
-		}
+		VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()),
+				 "Failed to allocate command buffers!");
 
 		LOG("Command buffer created");
 	}
@@ -982,9 +957,7 @@ class TouhouEngine {
 			.pInheritanceInfo = VK_NULL_HANDLE,
 		};
 
-		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-			ERROR("Failed to begin recording command buffer!");
-		}
+		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo), "Failed to begin recording command buffer!");
 
 		const VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
@@ -1032,9 +1005,7 @@ class TouhouEngine {
 
 		vkCmdEndRenderPass(commandBuffer);
 
-		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-			ERROR("Failed to record command buffer!");
-		}
+		VK_CHECK(vkEndCommandBuffer(commandBuffer), "Failed to record command buffer!");
 	}
 
 	void createSyncObjects() {
@@ -1141,9 +1112,7 @@ class TouhouEngine {
 			.pQueueFamilyIndices = VK_NULL_HANDLE,
 		};
 
-		if (vkCreateBuffer(device, &bufferInfo, VK_NULL_HANDLE, &buffer) != VK_SUCCESS) {
-			ERROR("Failed to create vertex buffer!");
-		}
+		VK_CHECK(vkCreateBuffer(device, &bufferInfo, VK_NULL_HANDLE, &buffer), "Failed to create vertex buffer!");
 		LOG("Vertex buffer created");
 
 		VkMemoryRequirements memRequirements;
@@ -1157,9 +1126,8 @@ class TouhouEngine {
 		};
 
 		LOG("Allocating vertex buffer memory");
-		if (vkAllocateMemory(device, &allocInfo, VK_NULL_HANDLE, &bufferMemory) != VK_SUCCESS) {
-			ERROR("Failed to allocate vertex buffer memory!");
-		}
+		VK_CHECK(vkAllocateMemory(device, &allocInfo, VK_NULL_HANDLE, &bufferMemory),
+				 "Failed to allocate vertex buffer memory!");
 
 		LOG("Binding vertex buffer memory");
 		vkBindBufferMemory(device, buffer, bufferMemory, 0);
@@ -1210,24 +1178,23 @@ class TouhouEngine {
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
-		createWindowSurface();
 
+		createWindowSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
 
 		createSwapChain();
 		createImageViews();
-		createRenderPass();
 
+		createRenderPass();
 		createGraphicsPipeline();
 		createFramebuffers();
 
 		createCommandPool();
+		createCommandBuffers();
 
 		createVertexBuffer();
 		createIndexBuffer();
-
-		createCommandBuffers();
 
 		createSyncObjects();
 	}
@@ -1265,9 +1232,8 @@ class TouhouEngine {
 			.pSignalSemaphores = &renderFinishedSemaphores[currentFrame],
 		};
 
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, waitFrameFences[currentFrame]) != VK_SUCCESS) {
-			ERROR("Failed to submit draw command buffer!");
-		}
+		VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, waitFrameFences[currentFrame]),
+				 "Failed to submit draw command buffer!");
 
 		VkPresentInfoKHR presentInfo{
 			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,

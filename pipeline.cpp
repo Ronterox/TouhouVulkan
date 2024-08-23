@@ -1,54 +1,140 @@
-void createSyncObjects() {
-	createFences();
-	createSemaphores();
+
+void initWindow() {
+	glfwInitStuff();
+	glfwAddResizeHint();
+	glfwRemoveAPIOfWindow();
+	glfwHintResizeCallback();
 }
 
-void createBuffer(buffer) {
-	createStagingBuffer(stagingBuffer);
-	mapDataFrom(stagingBuffer, buffer);
-	destroyStagingBuffer(stagingBuffer);
+void windowSurface() { glfwWinSurfaceGet(); }
+
+void pickPhysicalDevice() {
+	listDevices();
+	getScores();
+	pickSuitableGPU();
 }
 
-void commandBufferRequestDraw() {
-	waitFence();
-	createBuffer(verticesBuffer);
-	createBuffer(indexBuffer);
-	copyDataFrom(indexBuffer, veticesBuffer);
-	startCommandBuffer();
-	drawRequestVertices();
-	stopCommandBuffer();
+void createLogicalDevice() {
+	pickGraphicsQueueFamily();
+	pickPresentQueueFamily();
+	vkCreateLogicalDevice();
+
+	// For submitting later
+	vkGetPresentQueue(presentQueue);
+	vkGetGraphicsQueue(graphicsQueue);
 }
 
-void draw() {
-	while (win.event) {
-		commandBufferRequestDraw();
+void createSwapChain() {
+	auto surfaceFormat = getSurfaceFormat();
+	auto presentMode = getPresentMode();
+	auto extent = getExtent();
+	vkCreateSwapchain(device, surface);
+	vkGetImagesSwapchain(images);
+}
+
+void createRenderPass() {
+	fillRenderPassData();
+	createSubpass();
+}
+
+void createImageViews() {
+	auto images = getImagesFromSwapchain();
+	for (auto img : images) {
+		vkCreateImageView();
 	}
 }
 
-int main() {
-	initVulkan();
-	initWindow();
+void createGraphicsPipeline() {
+	auto shaderf = loadShader(path);
+	auto shaderv = loadShader(path);
 
-	listPhysicalDevices();
-	selectPhysicalDevice();
-	selectLogicalDevice();
+	auto shaderFrag = createShaderModule(shaderf);
+	auto shaderVert = createShaderModule(shaderv);
 
-	createImages();
+	vkCreateGraphicsPipelines();
+}
+
+void createFramebuffer() {
+	for (auto imageView : images) {
+		vkCreateFramebuffer(imageView, framebuffers[i]);
+	}
+}
+
+void createSyncObjects() {
+	auto fence[];
+	vkCreateFence(fence);
+
+	auto createSemaphore;
+	vkCreateSemaphore();
+
+	auto presentSemaphore;
+	vkCreateSemaphore();
+}
+
+void createCommandPool() {
+	auto graphicsFamily = getQueueFamily();
+	vkCreateCommandPool(graphicsFamily);
+}
+
+void createCommandBuffer() { vkCreateCommandBuffer(); }
+
+void createAndAllocate() {}
+
+void createVertexBuffer() { createAndAllocate(); }
+
+vodi createIndexBuffer() { createAndAllocate(); }
+
+void initVulkan() {
+	vkCreateVulkanInstance();
+	createDebugMessageValidation();
+
+	windowSurface();
+	pickPhysicalDevice();
+	createLogicalDevice();
+
+	createSwapChain();
 	createImageViews();
 
-	createFramebuffer();
-	createBufferView();
+	createRenderPass();
+	createGraphicsPipeline();
 
+	createFramebuffer();
 	createCommandPool();
 	createCommandBuffer();
 
-	createSyncObjects();
-	createVerticesBuffer();
+	createVertexBuffer();
 	createIndexBuffer();
 
-	createRenderPass();
+	createSyncObjects();
+}
 
-	draw();
+void drawNextFrame() {
+	waitFences(fences[i]);
 
+	auto result = vkGetFrame(createSemaphore);
+	checkForResize(result);
+
+	vkClearFence(fences[i]);
+
+	auto result = vkPresentFrame(presentSemaphore);
+
+	i++ % #fences;
+}
+
+void mainLoop() {
+	while (glfwWindowShouldClose()) {
+		glfwPollEvents();
+		drawNextFrame();
+
+		if (check == Escape) {
+			setShouldClose(true);
+		}
+	}
+}
+
+void main() {
+	initWindow();
+	initVulkan();
+	mainLoop();
 	cleanup();
 }

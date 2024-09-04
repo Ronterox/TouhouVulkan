@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -7,7 +8,9 @@
 #include <optional>
 #include <set>
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -1174,14 +1177,14 @@ class TouhouEngine {
 
 	void createVertexBuffer() {
 		LOG("Creating all vertex buffer");
-		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+		const VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 		createAndAllocBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertices.data(), vertexBuffer,
 							 vertexBufferMemory);
 	}
 
 	void createIndexBuffer() {
 		LOG("Creating all vertex buffer");
-		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+		const VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 		createAndAllocBuffer(bufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indices.data(), indexBuffer,
 							 indexBufferMemory);
 	}
@@ -1213,7 +1216,7 @@ class TouhouEngine {
 
 	void createUniformBuffers() {
 		LOG("Creating uniform buffers");
-		VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+		const VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
 		uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 		uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
@@ -1257,8 +1260,27 @@ class TouhouEngine {
 		createSyncObjects();
 	}
 
+	void updateUniformBuffer(const uint32_t currentFrame) {
+		static auto startTime = std::chrono::high_resolution_clock::now();
+
+		const auto currentTime = std::chrono::high_resolution_clock::now();
+		const float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+		UniformBufferObject ubo{
+			.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f,
+									 10.0f),
+		};
+		ubo.proj[1][1] *= -1;
+
+		memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+	}
+
 	void drawNextFrame() {
 		vkWaitForFences(device, 1, &waitFrameFences[currentFrame], VK_TRUE, UINT64_MAX);
+
+		updateUniformBuffer(currentFrame);
 
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame],

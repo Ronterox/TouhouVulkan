@@ -14,19 +14,25 @@
 
 #include "utils.h"
 
-const int WIDTH = 800;
-const int HEIGHT = 600;
+constexpr int WIDTH = 800;
+constexpr int HEIGHT = 600;
 
-const int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 const list<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 #ifdef NDEBUG
-const bool enableValidationLayers = false;
+constexpr bool enableValidationLayers = false;
 #else
-const bool enableValidationLayers = true;
+constexpr bool enableValidationLayers = true;
 #endif
 
 const list<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+struct UniformBufferObject {
+	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 proj;
+};
 
 struct Vertex {
 	glm::vec2 pos;
@@ -129,6 +135,7 @@ class TouhouEngine {
 	VkPipeline graphicsPipeline;
 
 	VkRenderPass renderPass;
+	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 
 	VkCommandPool commandPool;
@@ -159,6 +166,10 @@ class TouhouEngine {
 
 	VkBuffer vertexBuffer, indexBuffer;
 	VkDeviceMemory vertexBufferMemory, indexBufferMemory;
+
+	list<VkBuffer> uniformBuffers;
+	list<VkDeviceMemory> uniformBuffersMemory;
+	list<void *> uniformBuffersMapped;
 
 	void run() {
 		initWindow();
@@ -785,8 +796,8 @@ class TouhouEngine {
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.flags = 0,
-			.setLayoutCount = 0,
-			.pSetLayouts = VK_NULL_HANDLE,
+			.setLayoutCount = 1,
+			.pSetLayouts = &descriptorSetLayout,
 			.pushConstantRangeCount = 0,
 			.pPushConstantRanges = VK_NULL_HANDLE,
 		};
@@ -1175,6 +1186,50 @@ class TouhouEngine {
 							 indexBufferMemory);
 	}
 
+	void createDescriptorSetLayout() {
+		LOG("Creating descriptor set layout");
+
+		const VkDescriptorSetLayoutBinding uboLayoutBinding{
+			.binding = 0,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+			.pImmutableSamplers = VK_NULL_HANDLE,
+		};
+
+		const VkDescriptorSetLayoutCreateInfo layoutInfo{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.flags = 0,
+			.bindingCount = 1,
+			.pBindings = &uboLayoutBinding,
+		};
+
+		VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, VK_NULL_HANDLE, &descriptorSetLayout),
+				 "Failed to create descriptor set layout!");
+
+		LOG("Descriptor set layout created");
+	}
+
+	void createUniformBuffers() {
+		LOG("Creating uniform buffers");
+		VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+		uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+		uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+						 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i],
+						 uniformBuffersMemory[i]);
+
+			vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+		}
+
+		LOG("Uniform buffers created");
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
@@ -1187,6 +1242,8 @@ class TouhouEngine {
 		createImageViews();
 
 		createRenderPass();
+		createDescriptorSetLayout();
+
 		createGraphicsPipeline();
 		createFramebuffers();
 
@@ -1195,6 +1252,7 @@ class TouhouEngine {
 
 		createVertexBuffer();
 		createIndexBuffer();
+		createUniformBuffers();
 
 		createSyncObjects();
 	}
@@ -1315,6 +1373,15 @@ class TouhouEngine {
 
 		LOG("Cleaning up swap chain");
 		cleanupSwapchain();
+
+		LOG("Cleaning up uniform buffers");
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			vkDestroyBuffer(device, uniformBuffers[i], VK_NULL_HANDLE);
+			vkFreeMemory(device, uniformBuffersMemory[i], VK_NULL_HANDLE);
+		}
+
+		LOG("Cleaning up descriptor set layout");
+		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, VK_NULL_HANDLE);
 
 		LOG("Destroying vertex buffer");
 		vkDestroyBuffer(device, vertexBuffer, VK_NULL_HANDLE);

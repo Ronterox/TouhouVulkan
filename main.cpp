@@ -32,9 +32,9 @@ constexpr bool enableValidationLayers = true;
 const list<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 struct UniformBufferObject {
-	glm::mat4 model;
-	glm::mat4 view;
-	glm::mat4 proj;
+	alignas(16) glm::mat4 model;
+	alignas(16) glm::mat4 view;
+	alignas(16) glm::mat4 proj;
 };
 
 struct Vertex {
@@ -138,7 +138,6 @@ class TouhouEngine {
 	VkPipeline graphicsPipeline;
 
 	VkRenderPass renderPass;
-	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 
 	VkCommandPool commandPool;
@@ -173,6 +172,10 @@ class TouhouEngine {
 	list<VkBuffer> uniformBuffers;
 	list<VkDeviceMemory> uniformBuffersMemory;
 	list<void *> uniformBuffersMapped;
+
+	VkDescriptorPool descriptorPool;
+	VkDescriptorSetLayout descriptorSetLayout;
+	list<VkDescriptorSet> descriptorSets;
 
 	void run() {
 		initWindow();
@@ -743,7 +746,7 @@ class TouhouEngine {
 
 			.polygonMode = VK_POLYGON_MODE_FILL,
 			.cullMode = VK_CULL_MODE_BACK_BIT,
-			.frontFace = VK_FRONT_FACE_CLOCKWISE,
+			.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 
 			.depthBiasEnable = VK_FALSE,
 			.depthBiasConstantFactor = 0.0f,
@@ -1015,6 +1018,9 @@ class TouhouEngine {
 
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
+								&descriptorSets[currentFrame], 0, VK_NULL_HANDLE);
+
 		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
@@ -1233,6 +1239,67 @@ class TouhouEngine {
 		LOG("Uniform buffers created");
 	}
 
+	void createDescriptorPool() {
+		LOG("Creating descriptor pool");
+
+		VkDescriptorPoolSize poolSize{
+			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+		};
+
+		VkDescriptorPoolCreateInfo poolInfo{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.flags = 0,
+			.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+			.poolSizeCount = 1,
+			.pPoolSizes = &poolSize,
+		};
+
+		VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, VK_NULL_HANDLE, &descriptorPool),
+				 "Failed to create descriptor pool!");
+	}
+
+	void createDescriptorSets() {
+		LOG("Creating descriptor sets");
+
+		list<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+		VkDescriptorSetAllocateInfo allocInfo{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.descriptorPool = descriptorPool,
+			.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+			.pSetLayouts = layouts.data(),
+		};
+		descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+
+		VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()),
+				 "Failed to allocate descriptor sets!");
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			VkDescriptorBufferInfo bufferInfo{
+				.buffer = uniformBuffers[i],
+				.offset = 0,
+				.range = sizeof(UniformBufferObject),
+			};
+
+			VkWriteDescriptorSet writeDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.pNext = VK_NULL_HANDLE,
+				.dstSet = descriptorSets[i],
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pImageInfo = VK_NULL_HANDLE,
+				.pBufferInfo = &bufferInfo,
+				.pTexelBufferView = VK_NULL_HANDLE,
+			};
+
+			vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, VK_NULL_HANDLE);
+		}
+	}
+
 	void initVulkan() {
 		createVkInstance();
 		setupDebugMessenger();
@@ -1255,7 +1322,10 @@ class TouhouEngine {
 
 		createVertexBuffer();
 		createIndexBuffer();
+
 		createUniformBuffers();
+		createDescriptorPool();
+		createDescriptorSets();
 
 		createSyncObjects();
 	}
@@ -1401,6 +1471,9 @@ class TouhouEngine {
 			vkDestroyBuffer(device, uniformBuffers[i], VK_NULL_HANDLE);
 			vkFreeMemory(device, uniformBuffersMemory[i], VK_NULL_HANDLE);
 		}
+
+		LOG("Destroying descriptor pool");
+		vkDestroyDescriptorPool(device, descriptorPool, VK_NULL_HANDLE);
 
 		LOG("Cleaning up descriptor set layout");
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, VK_NULL_HANDLE);

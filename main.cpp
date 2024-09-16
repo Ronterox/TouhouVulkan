@@ -15,6 +15,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
 #include "utils.h"
 
 constexpr int WIDTH = 800;
@@ -165,6 +168,12 @@ class TouhouEngine {
 
 	uint32_t currentFrame = 0;
 	bool framebufferResized = false;
+
+	VkImage textureImage;
+	VkDeviceMemory textureImageMemory;
+
+	VkImageView textureImageView;
+	VkSampler textureSampler;
 
 	VkBuffer vertexBuffer, indexBuffer;
 	VkDeviceMemory vertexBufferMemory, indexBufferMemory;
@@ -611,39 +620,47 @@ class TouhouEngine {
 		LOG("Swap chain images obtained");
 	}
 
+	VkImageView createImageView(VkImage image, VkFormat format) {
+		LOG("Creating image view");
+		const VkImageViewCreateInfo createInfo{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.flags = 0,
+
+			.image = image,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = format,
+
+			.components =
+				{
+					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+				},
+			.subresourceRange =
+				{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+		};
+
+		VkImageView imageView;
+		VK_CHECK(vkCreateImageView(device, &createInfo, VK_NULL_HANDLE, &imageView), "Failed to create image views!");
+		LOG("Image view created");
+
+		return imageView;
+	}
+
 	void createImageViews() {
+		LOG("Creating image views");
 		swapChainImageViews.resize(swapChainImages.size());
 
 		for (size_t i = 0; i < swapChainImages.size(); ++i) {
-			const VkImageViewCreateInfo createInfo{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.pNext = VK_NULL_HANDLE,
-				.flags = 0,
-
-				.image = swapChainImages[i],
-				.viewType = VK_IMAGE_VIEW_TYPE_2D,
-				.format = swapChainImageFormat,
-
-				.components =
-					{
-						.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-						.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-						.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-						.a = VK_COMPONENT_SWIZZLE_IDENTITY,
-					},
-				.subresourceRange =
-					{
-						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-						.baseMipLevel = 0,
-						.levelCount = 1,
-						.baseArrayLayer = 0,
-						.layerCount = 1,
-					},
-			};
-
-			VK_CHECK(vkCreateImageView(device, &createInfo, VK_NULL_HANDLE, &swapChainImageViews[i]),
-					 "Failed to create image views!");
-			LOG("Image view created");
+			swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
 		}
 	}
 
@@ -1069,7 +1086,7 @@ class TouhouEngine {
 		ERROR("Failed to find suitable memory type!");
 	}
 
-	void copyBuffer(const VkBuffer srcBuffer, const VkBuffer dstBuffer, const VkDeviceSize size) {
+	VkCommandBuffer beginSingleTimeCommands() {
 		LOG("Allocating command buffer");
 		const VkCommandBufferAllocateInfo allocInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -1082,20 +1099,18 @@ class TouhouEngine {
 		VkCommandBuffer commandBuffer;
 		vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
 
-		const VkCommandBufferBeginInfo beginInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-												 .pNext = VK_NULL_HANDLE,
-												 .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-												 .pInheritanceInfo = VK_NULL_HANDLE};
+		const VkCommandBufferBeginInfo beginInfo{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+			.pInheritanceInfo = VK_NULL_HANDLE,
+		};
 
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+		return commandBuffer;
+	}
 
-		const VkBufferCopy copyRegion{
-			.srcOffset = 0,
-			.dstOffset = 0,
-			.size = size,
-		};
-		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-
+	void endSingleTimeCommands(const VkCommandBuffer commandBuffer) {
 		vkEndCommandBuffer(commandBuffer);
 
 		LOG("Submitting command buffer");
@@ -1116,6 +1131,19 @@ class TouhouEngine {
 		vkQueueWaitIdle(graphicsQueue);
 
 		vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+	}
+
+	void copyBuffer(const VkBuffer srcBuffer, const VkBuffer dstBuffer, const VkDeviceSize size) {
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+		const VkBufferCopy copyRegion{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = size,
+		};
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+		endSingleTimeCommands(commandBuffer);
 	}
 
 	void createBuffer(const VkDeviceSize size, const VkBufferUsageFlags usage, const VkMemoryPropertyFlags properties,
@@ -1153,23 +1181,34 @@ class TouhouEngine {
 		vkBindBufferMemory(device, buffer, bufferMemory, 0);
 	}
 
-	void createAndAllocBuffer(const VkDeviceSize bufferSize, const VkBufferUsageFlags usage, const void *bufferData,
-							  VkBuffer &buffer, VkDeviceMemory &bufferMemory) {
-		LOG("Allocating and staging buffer");
-
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
+	void createStagingBuffer(VkBuffer &stagingBuffer, VkDeviceMemory &stagingBufferMemory, const void *bufferData,
+							 const VkDeviceSize bufferSize) {
+		LOG("Creating staging buffer");
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer,
 					 stagingBufferMemory);
 
-		LOG("Mapping vertex buffer");
+		LOG("Mapping staging buffer");
 		void *data;
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, bufferData, (size_t)bufferSize);
+		memcpy(data, bufferData, static_cast<size_t>(bufferSize));
 		vkUnmapMemory(device, stagingBufferMemory);
+	}
 
-		LOG("Creating main vertex buffer");
+	void clearMappedBuffer(const VkBuffer buffer, const VkDeviceMemory bufferMemory) {
+		vkDestroyBuffer(device, buffer, VK_NULL_HANDLE);
+		vkFreeMemory(device, bufferMemory, VK_NULL_HANDLE);
+	}
+
+	void createAndAllocBuffer(const VkDeviceSize bufferSize, const VkBufferUsageFlags usage, const void *bufferData,
+							  VkBuffer &buffer, VkDeviceMemory &bufferMemory) {
+		LOG("Allocating and creating buffer");
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		createStagingBuffer(stagingBuffer, stagingBufferMemory, bufferData, bufferSize);
+
+		LOG("Creating main buffer");
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buffer,
 					 bufferMemory);
 
@@ -1177,8 +1216,7 @@ class TouhouEngine {
 		copyBuffer(stagingBuffer, buffer, bufferSize);
 
 		LOG("Destroying staging buffer");
-		vkDestroyBuffer(device, stagingBuffer, VK_NULL_HANDLE);
-		vkFreeMemory(device, stagingBufferMemory, VK_NULL_HANDLE);
+		clearMappedBuffer(stagingBuffer, stagingBufferMemory);
 	}
 
 	void createVertexBuffer() {
@@ -1242,12 +1280,12 @@ class TouhouEngine {
 	void createDescriptorPool() {
 		LOG("Creating descriptor pool");
 
-		VkDescriptorPoolSize poolSize{
+		const VkDescriptorPoolSize poolSize{
 			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
 		};
 
-		VkDescriptorPoolCreateInfo poolInfo{
+		const VkDescriptorPoolCreateInfo poolInfo{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.flags = 0,
@@ -1263,8 +1301,8 @@ class TouhouEngine {
 	void createDescriptorSets() {
 		LOG("Creating descriptor sets");
 
-		list<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
-		VkDescriptorSetAllocateInfo allocInfo{
+		const list<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+		const VkDescriptorSetAllocateInfo allocInfo{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.descriptorPool = descriptorPool,
@@ -1277,13 +1315,13 @@ class TouhouEngine {
 				 "Failed to allocate descriptor sets!");
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-			VkDescriptorBufferInfo bufferInfo{
+			const VkDescriptorBufferInfo bufferInfo{
 				.buffer = uniformBuffers[i],
 				.offset = 0,
 				.range = sizeof(UniformBufferObject),
 			};
 
-			VkWriteDescriptorSet writeDescriptorSet{
+			const VkWriteDescriptorSet writeDescriptorSet{
 				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				.pNext = VK_NULL_HANDLE,
 				.dstSet = descriptorSets[i],
@@ -1298,6 +1336,155 @@ class TouhouEngine {
 
 			vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, VK_NULL_HANDLE);
 		}
+	}
+
+	void transitionImageLayout(const VkImage image, const VkImageLayout oldLayout, const VkImageLayout newLayout) {
+		const VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+		const VkImageMemoryBarrier barrier{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.pNext = VK_NULL_HANDLE,
+			.srcAccessMask = 0,
+			.dstAccessMask = 0,
+			.oldLayout = oldLayout,
+			.newLayout = newLayout,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = image,
+			.subresourceRange =
+				{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+		};
+
+		vkCmdPipelineBarrier(commandBuffer, 0, 0, 0, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 1, &barrier);
+
+		endSingleTimeCommands(commandBuffer);
+	}
+
+	void copyBufferToImage(const VkBuffer buffer, const VkImage image, const uint32_t width, const uint32_t height) {
+		const VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+		const VkBufferImageCopy region{
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource =
+				{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			.imageOffset = {0, 0, 0},
+			.imageExtent = {width, height, 1},
+		};
+
+		vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+		endSingleTimeCommands(commandBuffer);
+	}
+
+	void createTextureImage() {
+		LOG("Creating texture image");
+
+		int texWidth, texHeight, texChannels;
+		stbi_uc *pixels = stbi_load("textures/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		const VkDeviceSize imageSize = texWidth * texHeight * 4; // 4 bytes per pixel
+
+		VALIDATE(pixels, "Failed to load texture image!");
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		createStagingBuffer(stagingBuffer, stagingBufferMemory, pixels, imageSize);
+
+		stbi_image_free(pixels);
+
+		const VkImageCreateInfo imageInfo = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.flags = 0,
+			.imageType = VK_IMAGE_TYPE_2D,
+			.format = VK_FORMAT_R8G8B8A8_SRGB,
+			.extent = {static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = 0,
+			.pQueueFamilyIndices = VK_NULL_HANDLE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		};
+
+		VK_CHECK(vkCreateImage(device, &imageInfo, VK_NULL_HANDLE, &textureImage), "Failed to create texture image!");
+
+		VkMemoryRequirements memRequirements;
+		vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo = {
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.allocationSize = memRequirements.size,
+			.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+		};
+
+		VK_CHECK(vkAllocateMemory(device, &allocInfo, VK_NULL_HANDLE, &textureImageMemory),
+				 "Failed to allocate texture image memory!");
+
+		vkBindImageMemory(device, textureImage, textureImageMemory, 0);
+
+		transitionImageLayout(textureImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth),
+						  static_cast<uint32_t>(texHeight));
+		transitionImageLayout(textureImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+							  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		clearMappedBuffer(stagingBuffer, stagingBufferMemory);
+	}
+
+	void createTextureImageView() {
+		LOG("Creating texture image view");
+		textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+		LOG("Texture image view created");
+	}
+
+	void createTextureSampler() {
+		LOG("Creating texture sampler");
+
+		VkPhysicalDeviceProperties properties;
+		vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+
+		// TODO: Have fun changing this !!
+		const VkSamplerCreateInfo samplerInfo = {
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.pNext = VK_NULL_HANDLE,
+			.flags = 0,
+			.magFilter = VK_FILTER_LINEAR,
+			.minFilter = VK_FILTER_LINEAR,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = VK_TRUE,
+			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+			.compareEnable = VK_FALSE,
+			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.minLod = 0.0f,
+			.maxLod = 0.0f,
+			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+			.unnormalizedCoordinates = VK_FALSE,
+		};
+
+		VK_CHECK(vkCreateSampler(device, &samplerInfo, VK_NULL_HANDLE, &textureSampler),
+				 "Failed to create texture sampler!");
+		LOG("Texture sampler created");
 	}
 
 	void initVulkan() {
@@ -1319,6 +1506,10 @@ class TouhouEngine {
 
 		createCommandPool();
 		createCommandBuffers();
+
+		createTextureImage();
+		createTextureImageView();
+		createTextureSampler();
 
 		createVertexBuffer();
 		createIndexBuffer();
@@ -1368,9 +1559,9 @@ class TouhouEngine {
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
-		VkPipelineStageFlags waitStagesMask[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+		const VkPipelineStageFlags waitStagesMask[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
-		VkSubmitInfo submitInfo{
+		const VkSubmitInfo submitInfo{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.waitSemaphoreCount = 1,
@@ -1430,13 +1621,12 @@ class TouhouEngine {
 
 	void mainLoop() {
 		LOG("Running main loop");
-		while (!glfwWindowShouldClose(window)) {
+
+		do {
 			glfwPollEvents();
 			drawNextFrame();
-			if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-				glfwSetWindowShouldClose(window, GLFW_TRUE);
-			}
-		}
+		} while (!glfwWindowShouldClose(window) && glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS);
+
 		vkDeviceWaitIdle(device);
 	}
 
@@ -1465,6 +1655,16 @@ class TouhouEngine {
 
 		LOG("Cleaning up swap chain");
 		cleanupSwapchain();
+
+		LOG("Destroying texture sampler");
+		vkDestroySampler(device, textureSampler, VK_NULL_HANDLE);
+
+		LOG("Destroying textures image view");
+		vkDestroyImageView(device, textureImageView, VK_NULL_HANDLE);
+
+		LOG("Destroying textures images");
+		vkDestroyImage(device, textureImage, VK_NULL_HANDLE);
+		vkFreeMemory(device, textureImageMemory, VK_NULL_HANDLE);
 
 		LOG("Cleaning up uniform buffers");
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {

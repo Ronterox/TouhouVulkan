@@ -1,5 +1,7 @@
-# CFLAGS = -std=c++20 -O2 -s -DNDEBUG
-CFLAGS = -std=c++20 -g
+LIBS_PATH = ./libs
+
+# CFLAGS = -std=c++20 -O2 -s -DNDEBUG -I$(STB_INCLUDE_PATH)
+CFLAGS = -std=c++20 -g -I$(LIBS_PATH)
 LDFLAGS = -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
 STRICTFLAGS = -Wall -Wextra -Wpedantic -Werror
 

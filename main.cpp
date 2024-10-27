@@ -20,6 +20,8 @@
 
 #include "utils.h"
 
+#define SIZE(x) static_cast<uint32_t>(x.size())
+
 constexpr int WIDTH = 800;
 constexpr int HEIGHT = 600;
 
@@ -43,27 +45,37 @@ struct UniformBufferObject {
 struct Vertex {
 	glm::vec2 pos;
 	glm::vec3 color;
+	glm::vec2 texCoord;
 
 	static VkVertexInputBindingDescription getBindingDescription() {
-		VkVertexInputBindingDescription bindingDescription{
+		return VkVertexInputBindingDescription{
 			.binding = 0,
 			.stride = sizeof(Vertex),
 			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
 		};
-		return bindingDescription;
 	}
 
-	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
-		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-		attributeDescriptions[0].binding = 0;
-		attributeDescriptions[0].location = 0;
-		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
-		attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-		attributeDescriptions[1].binding = 0;
-		attributeDescriptions[1].location = 1;
-		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescriptions[1].offset = offsetof(Vertex, color);
+	static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{
+			VkVertexInputAttributeDescription{
+				.location = 0,
+				.binding = 0,
+				.format = VK_FORMAT_R32G32_SFLOAT,
+				.offset = offsetof(Vertex, pos),
+			},
+			VkVertexInputAttributeDescription{
+				.location = 1,
+				.binding = 0,
+				.format = VK_FORMAT_R32G32B32_SFLOAT,
+				.offset = offsetof(Vertex, color),
+			},
+			VkVertexInputAttributeDescription{
+				.location = 2,
+				.binding = 0,
+				.format = VK_FORMAT_R32G32_SFLOAT,
+				.offset = offsetof(Vertex, texCoord),
+			},
+		};
 		return attributeDescriptions;
 	}
 };
@@ -194,10 +206,12 @@ class TouhouEngine {
 	}
 
   private:
-	const list<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-								   {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-								   {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-								   {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+	const list<Vertex> vertices = {
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+	};
 	const list<uint16_t> indices = {0, 1, 2, 2, 3, 0};
 
 	bool checkValidationLayerSupport() {
@@ -315,13 +329,13 @@ class TouhouEngine {
 			.pApplicationInfo = &appInfo,
 			.enabledLayerCount = 0,
 			.ppEnabledLayerNames = VK_NULL_HANDLE,
-			.enabledExtensionCount = static_cast<uint32_t>(glfwExtensions.size()),
+			.enabledExtensionCount = SIZE(glfwExtensions),
 			.ppEnabledExtensionNames = glfwExtensions.data(),
 		};
 
 		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 		if (enableValidationLayers) {
-			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.enabledLayerCount = SIZE(validationLayers);
 			createInfo.ppEnabledLayerNames = validationLayers.data();
 
 			populateDebugMessengerCreateInfo(debugCreateInfo);
@@ -460,17 +474,17 @@ class TouhouEngine {
 			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.flags = 0,
-			.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
+			.queueCreateInfoCount = SIZE(queueCreateInfos),
 			.pQueueCreateInfos = queueCreateInfos.data(),
 			.enabledLayerCount = 0,
 			.ppEnabledLayerNames = VK_NULL_HANDLE,
-			.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
+			.enabledExtensionCount = SIZE(deviceExtensions),
 			.ppEnabledExtensionNames = deviceExtensions.data(),
 			.pEnabledFeatures = VK_NULL_HANDLE,
 		};
 
 		if (enableValidationLayers) {
-			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.enabledLayerCount = SIZE(validationLayers);
 			createInfo.ppEnabledLayerNames = validationLayers.data();
 		}
 
@@ -718,7 +732,7 @@ class TouhouEngine {
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.flags = 0,
-			.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+			.dynamicStateCount = SIZE(dynamicStates),
 			.pDynamicStates = dynamicStates.data(),
 		};
 
@@ -731,7 +745,7 @@ class TouhouEngine {
 			.flags = 0,
 			.vertexBindingDescriptionCount = 1,
 			.pVertexBindingDescriptions = &bindingDescriptions,
-			.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
+			.vertexAttributeDescriptionCount = SIZE(attributeDescriptions),
 			.pVertexAttributeDescriptions = attributeDescriptions.data(),
 		};
 
@@ -1038,7 +1052,7 @@ class TouhouEngine {
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
 								&descriptorSets[currentFrame], 0, VK_NULL_HANDLE);
 
-		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, SIZE(indices), 1, 0, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
 
@@ -1244,12 +1258,22 @@ class TouhouEngine {
 			.pImmutableSamplers = VK_NULL_HANDLE,
 		};
 
+		const VkDescriptorSetLayoutBinding samplerLayoutBinding{
+			.binding = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.pImmutableSamplers = VK_NULL_HANDLE,
+		};
+
+		const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+
 		const VkDescriptorSetLayoutCreateInfo layoutInfo{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.flags = 0,
-			.bindingCount = 1,
-			.pBindings = &uboLayoutBinding,
+			.bindingCount = SIZE(bindings),
+			.pBindings = bindings.data(),
 		};
 
 		VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, VK_NULL_HANDLE, &descriptorSetLayout),
@@ -1280,9 +1304,15 @@ class TouhouEngine {
 	void createDescriptorPool() {
 		LOG("Creating descriptor pool");
 
-		const VkDescriptorPoolSize poolSize{
-			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+		const std::array<VkDescriptorPoolSize, 2> poolSizes = {
+			VkDescriptorPoolSize{
+				.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+			},
+			VkDescriptorPoolSize{
+				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+			},
 		};
 
 		const VkDescriptorPoolCreateInfo poolInfo{
@@ -1290,8 +1320,8 @@ class TouhouEngine {
 			.pNext = VK_NULL_HANDLE,
 			.flags = 0,
 			.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-			.poolSizeCount = 1,
-			.pPoolSizes = &poolSize,
+			.poolSizeCount = SIZE(poolSizes),
+			.pPoolSizes = poolSizes.data(),
 		};
 
 		VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, VK_NULL_HANDLE, &descriptorPool),
@@ -1321,20 +1351,40 @@ class TouhouEngine {
 				.range = sizeof(UniformBufferObject),
 			};
 
-			const VkWriteDescriptorSet writeDescriptorSet{
-				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.pNext = VK_NULL_HANDLE,
-				.dstSet = descriptorSets[i],
-				.dstBinding = 0,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-				.pImageInfo = VK_NULL_HANDLE,
-				.pBufferInfo = &bufferInfo,
-				.pTexelBufferView = VK_NULL_HANDLE,
+			const VkDescriptorImageInfo imageInfo{
+				.sampler = textureSampler,
+				.imageView = textureImageView,
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, VK_NULL_HANDLE);
+			const std::array<VkWriteDescriptorSet, 2> descriptorWrites = {
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.pNext = VK_NULL_HANDLE,
+					.dstSet = descriptorSets[i],
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+					.pImageInfo = VK_NULL_HANDLE,
+					.pBufferInfo = &bufferInfo,
+					.pTexelBufferView = VK_NULL_HANDLE,
+				},
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.pNext = VK_NULL_HANDLE,
+					.dstSet = descriptorSets[i],
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pImageInfo = &imageInfo,
+					.pBufferInfo = VK_NULL_HANDLE,
+					.pTexelBufferView = VK_NULL_HANDLE,
+				},
+			};
+
+			vkUpdateDescriptorSets(device, SIZE(descriptorWrites), descriptorWrites.data(), 0, VK_NULL_HANDLE);
 		}
 	}
 
@@ -1427,7 +1477,7 @@ class TouhouEngine {
 		VkMemoryRequirements memRequirements;
 		vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
 
-		VkMemoryAllocateInfo allocInfo = {
+		const VkMemoryAllocateInfo allocInfo = {
 			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 			.pNext = VK_NULL_HANDLE,
 			.allocationSize = memRequirements.size,
@@ -1472,7 +1522,7 @@ class TouhouEngine {
 			.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
 			.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
 			.mipLodBias = 0.0f,
-			.anisotropyEnable = VK_TRUE,
+			.anisotropyEnable = VK_FALSE,
 			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
 			.compareEnable = VK_FALSE,
 			.compareOp = VK_COMPARE_OP_ALWAYS,

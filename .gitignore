@@ -3,3 +3,5 @@ glslc/
 *.spv
 *.out
 shaderc
+glslc
+game.tar.xz

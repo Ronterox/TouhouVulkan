@@ -16,8 +16,7 @@
 #include <GLFW/glfw3.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
-
+#include "stb/stb_image.h"
 #include "utils.h"
 
 #define SIZE(x) static_cast<uint32_t>(x.size())
@@ -1007,7 +1006,7 @@ class TouhouEngine {
 
 		VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo), "Failed to begin recording command buffer!");
 
-		const VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+		const VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
 
 		const VkRenderPassBeginInfo renderPassInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,

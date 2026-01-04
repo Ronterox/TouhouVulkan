@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -e
+
+main() {
+	nvim .
+}
+
+# @cmd Builds the game
+build() {
+	make build
+}
+
+# @cmd Builds and runs the game
+run() {
+	make run
+}
+
+# @cmd Exports the game to a tar.xz file and runs it
+# @alias export
+# @require-tools xz,perl,upx
+compress() {
+	build
+	tar -cvf - main.out shaders/*.spv textures/* | xz -9e --extreme > game.tar.xz
+
+	upx --best --lzma main.out
+
+	tar -xOf game.tar.xz main.out | perl -e '
+    $name = "my_process";
+    $fd = syscall(319, $name, 1); # memfd_create
+    open($fh, ">&=$fd");
+    print $fh <STDIN>;
+    exec {"/proc/self/fd/$fd"} $name;
+'
+}
+
+# See more details at https://github.com/sigoden/argc
+eval "$(start-tool extend)"
+eval "$(argc --argc-eval "$0" "$@")"
